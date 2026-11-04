@@ -1,0 +1,9 @@
+{
+  "name": "m. app",
+  "short_name": "m. app",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f4f5f0",
+  "theme_color": "#254b36",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

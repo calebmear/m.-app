@@ -252,7 +252,92 @@
   }
   
   .charge-list-scroll {
-    overflow-x: auto;
+    max-height: min(22rem, 50vh);
+    overflow: auto;
+  }
+  
+  .bill-list {
+    list-style: none;
+    padding: 0;
+    margin: 0.5rem 0;
+  }
+  
+  .bill-list > li {
+    padding: 0.35rem 0;
+    border-bottom: 1px solid #e4e8e0;
+  }
+  
+  .bill-summary {
+    display: grid;
+    grid-template-columns: 2.5rem minmax(0, 1fr) max-content max-content;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  
+  .bill-summary-name {
+    overflow-wrap: anywhere;
+  }
+  
+  .bill-summary-date,
+  .bill-summary-amount {
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  
+  .bill-edit-button {
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+  
+  #edit-bills:not(.is-editing) :is(.bill-fields, .bill-edit-actions),
+  #edit-bills.is-editing :is(.bill-summary, .bill-edit-button),
+  #edit-bills.is-editing ~ .add-details,
+  .bill-list > li[hidden] {
+    display: none;
+  }
+  
+  .bill-fields {
+    display: grid;
+    grid-template-columns: 3rem minmax(0, 1fr) minmax(4rem, 5.5rem) max-content 2.25rem;
+    align-items: center;
+    gap: 0.25rem 0.4rem;
+  }
+  
+  .bill-fields .bill-paid-field,
+  .bill-summary .bill-paid-field {
+    display: flex;
+    grid-column: 4;
+    align-items: center;
+    gap: 0.25rem;
+    margin: 0;
+    font-size: 0.8rem;
+    white-space: nowrap;
+  }
+  
+  .bill-paid-field input[type="checkbox"] {
+    width: 1rem;
+    height: 1rem;
+    flex: none;
+    margin: 0;
+  }
+  
+  .bill-fields input:not([type="checkbox"]) {
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    padding-inline: 0.35rem;
+  }
+  
+  .bill-remove-button {
+    padding-inline: 0;
+  }
+  
+  .bill-edit-actions {
+    display: flex;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.65rem;
   }
   
   .charge-list-table {

@@ -162,7 +162,7 @@ function cardChargeTable(charges, scope) {
         <button type="button" data-action="cancel-charge-edits" ${disabled()}>Cancel</button>
       </div>
     </div>`}
-    <div class="charge-list-scroll"><table class="charge-list-table">
+    <div class="charge-list-scroll" role="region" aria-label="Saved charges" tabindex="0"><table class="charge-list-table">
       <thead><tr><th scope="col">Code</th><th scope="col">Vendor</th><th scope="col" class="numeric">Amount</th><th scope="col">Date</th></tr></thead>
       <tbody>${rows}</tbody>
     </table></div>
@@ -188,6 +188,7 @@ function cardMarkup() {
       <input name="posted" placeholder="MM/DD or Pending" maxlength="10" autocomplete="off" ${disabled()}>
     </label>
     <div class="charge-draft-list"></div>
+    <p class="hint charge-group-total">0 charges · ${money(0)}</p>
     ${editor}
   </fieldset>`;
   const tabs = cardTabs.map(card => {
@@ -217,6 +218,7 @@ function cardMarkup() {
         <form id="add-charges-${card.id}" class="charge-batch-form">
           <p class="hint">Each group shares one date. Type Pending or leave the group date blank for pending charges.</p>
           <div class="charge-batch-groups">${draftGroup(draftEditor)}</div>
+          <p role="status"><strong class="charge-batch-total">Batch total · 0 charges · ${money(0)}</strong></p>
           <div class="charge-batch-actions">
             <button type="button" data-action="add-charge-group" ${disabled()}>+ Add another date</button>
             <button type="button" data-action="close-charge-dialog">Close</button>
@@ -239,14 +241,64 @@ function cardMarkup() {
   </section>`;
 }
 function billsMarkup() {
-  const rows = budget.bills.slice().sort((a, b) => a.day - b.day).map(bill => `<tr><td class="bill-day"><label class="day-label"><span>${esc(shortMonth(selectedMonth))}</span><input type="number" min="1" max="${daysInMonth(selectedMonth)}" value="${bill.day}" data-kind="bill-day" data-id="${bill.id}" aria-label="${esc(bill.name)} debit day" ${disabled()}></label></td><td class="bill-name">${esc(bill.name)}${bill.endOfMonth ? '<span class="hint">End of month</span>' : ''}<button class="text-button" type="button" data-action="remove-bill" data-id="${esc(bill.id)}" aria-label="Remove ${esc(bill.name)} bill" ${disabled()}>Remove</button></td><td class="bill-amount">${amountField(bill.amountCents, `${bill.name} amount`, 'bill-amount', bill.id)}</td><td class="bill-paid"><label class="paid-label"><span class="mobile-label">Paid</span><input type="checkbox" data-kind="bill-paid" data-id="${bill.id}" aria-label="${esc(bill.name)} paid" ${bill.paid ? 'checked' : ''} ${disabled()}></label></td></tr>`).join('');
-  return `<section class="panel bills-panel"><div class="panel-heading"><div><h2>Checking bills</h2><p>Amounts and dates apply to this month</p></div><span class="pill">${budget.bills.filter(b => b.paid).length} / ${budget.bills.length} paid</span></div><table class="bills-table"><thead><tr><th>Debit date</th><th>Bill</th><th class="numeric">Amount ($)</th><th class="numeric">Paid</th></tr></thead><tbody>${rows || '<tr class="empty-row"><td colspan="4">Add your recurring bills below.</td></tr>'}</tbody></table><p class="hint numeric">${money(totals(budget).remainingBills)} still to clear</p><details class="add-details"><summary>Add a bill</summary><form id="add-bill" class="inline-form"><label>Bill name<input name="name" maxlength="100" placeholder="Mortgage, water…" required ${disabled()}></label><label>Day<input name="day" type="number" min="1" max="${daysInMonth(selectedMonth)}" value="1" required ${disabled()}></label><label>Amount ($)<input name="amount" inputmode="decimal" placeholder="0.00" required ${disabled()}></label><label class="checkbox-label"><input name="eom" type="checkbox" ${disabled()}>End of month</label><button ${disabled()}>Add bill</button></form></details></section>`;
+  const lastDay = daysInMonth(selectedMonth);
+  const bills = budget.bills.slice().sort((a, b) => a.day - b.day);
+  const debitDate = bill => `${Number(selectedMonth.slice(5))}/${bill.day}`;
+  const rows = bills.map(bill => {
+    const key = esc(bill.id);
+    const name = esc(bill.name);
+    return `<li data-bill-id="${key}">
+      <div class="bill-summary">
+        <span class="bill-summary-date">${bill.endOfMonth ? '<abbr title="End of month">EOM</abbr>' : debitDate(bill)}</span>
+        <span class="bill-summary-name">${name}</span>
+        <span class="bill-summary-amount">${money(bill.amountCents)}</span>
+        <label class="bill-paid-field"><input type="checkbox" id="bill-paid-${key}" data-kind="bill-paid" data-id="${key}" aria-label="Mark ${name} paid" ${bill.paid ? 'checked' : ''} ${disabled()}>Paid</label>
+      </div>
+      ${budget.closed ? '' : `<div class="bill-fields">
+        <input type="number" name="day-${key}" min="1" max="${lastDay}" value="${bill.day}" aria-label="Debit day for ${name}" ${disabled()}>
+        <input name="name-${key}" value="${name}" maxlength="100" aria-label="Vendor for ${name}" ${disabled()}>
+        <input name="amount-${key}" inputmode="decimal" value="${amount(bill.amountCents)}" aria-label="Amount for ${name}" ${disabled()}>
+        <label class="bill-paid-field"><input type="checkbox" name="paid-${key}" aria-label="Mark ${name} paid" ${bill.paid ? 'checked' : ''} ${disabled()}>Paid</label>
+        <button type="button" class="bill-remove-button" data-action="stage-bill-removal" aria-label="Remove ${name}" ${disabled()}>−</button>
+      </div>`}
+    </li>`;
+  }).join('');
+  return `<section class="panel bills-panel">
+    <form id="edit-bills" novalidate>
+      <div class="panel-heading">
+        <div><h2>Checking bills</h2><p class="hint">${bills.filter(bill => bill.paid).length} of ${bills.length} paid · ${money(totals(budget).remainingBills)} still to clear</p></div>
+        ${!budget.closed && rows ? `<button type="button" class="bill-edit-button" data-action="edit-bills" ${disabled()}>Edit bills</button>` : ''}
+      </div>
+      ${rows ? `<ul class="bill-list">${rows}</ul>` : '<p class="hint">Add your recurring bills below.</p>'}
+      <div role="alert" class="schedule-editor-error"></div>
+      ${!budget.closed && rows ? `<div class="bill-edit-actions">
+        <button type="button" data-action="cancel-bill-edits" ${disabled()}>Cancel</button>
+        <button type="submit" class="primary" ${disabled()}>Save changes</button>
+      </div>` : ''}
+    </form>
+    ${budget.closed ? '' : `<details class="add-details">
+      <summary>Add a bill</summary>
+      <form id="add-bill" class="inline-form">
+        <label>Bill name<input name="name" maxlength="100" placeholder="Mortgage, water…" required ${disabled()}></label>
+        <label>Day<input name="day" type="number" min="1" max="${lastDay}" value="1" required ${disabled()}></label>
+        <label>Amount ($)<input name="amount" inputmode="decimal" placeholder="0.00" required ${disabled()}></label>
+        <label class="checkbox-label"><input type="checkbox" name="eom" ${disabled()}>End of month</label>
+        <button ${disabled()}>Add bill</button>
+      </form>
+    </details>`}
+  </section>`;
 }
 function render() {
   if (supabase && !activeUser) return renderAuth();
   if (!budget) { root.innerHTML = `<main class="auth"><div class="wordmark">m.</div><p>${loading ? 'Opening your month…' : esc(error || 'Could not open your budget.')}</p>${!loading ? '<button data-action="reload">Try again</button>' : ''}</main>`; return; }
   const t = totals(budget);
   root.innerHTML = `<div class="app-shell"><header><div class="topline"><div class="brand">m.<span>app</span></div><div class="account">${supabase ? `<span>${esc(activeUser?.email)}</span><button data-action="sign-out" ${busy || dirty ? 'disabled' : ''}>Sign out</button>` : '<span>Stored on this device</span>'}</div></div><div class="month-heading"><div><h1>${esc(monthLabel(selectedMonth))}</h1><p>Know what each paycheck covers.</p></div><label class="month-picker">Budget month<input type="month" value="${selectedMonth}" data-kind="month" aria-label="Budget month" ${busy || dirty ? 'disabled' : ''}></label></div><div class="save-line" role="status">${busy ? 'Saving…' : dirty ? 'Changes need to be saved' : supabase ? 'Saved to your account' : 'Saved on this device'}${notice ? ` · ${esc(notice)}` : ''}</div></header>${error ? `<div class="error-banner" role="alert"><p>${esc(error)}</p><div>${dirty ? '<button data-action="retry">Retry save</button>' : ''}<button data-action="reload">Reload saved version</button></div></div>` : ''}<main class="workspace">${scheduleMarkup()}<div class="ledgers">${cardMarkup()}${billsMarkup()}</div></main><footer><div>${t.lowest < 0 ? '<span class="negative">A scheduled balance falls below zero.</span>' : 'Every scheduled balance stays at or above zero.'}</div><details><summary>Month options</summary><div class="footer-actions"><button data-action="defaults" ${busy || dirty || budget.closed ? 'disabled' : ''}>Use bills & paychecks as future defaults</button><button data-action="export" ${busy ? 'disabled' : ''}>Export this month</button><button data-action="close" ${busy || dirty ? 'disabled' : ''}>${budget.closed ? 'Reopen month' : 'Close month'}</button></div><p class="hint">All edits belong to ${esc(monthLabel(selectedMonth))}. Future defaults only populate months you have not opened yet.</p></details></footer></div>`;
+  scrollToLatestCharges();
+}
+function scrollToLatestCharges() {
+  for (const list of root.querySelectorAll('.card-tab-panel:not([hidden]) .charge-list-scroll')) {
+    list.scrollTop = list.scrollHeight;
+  }
 }
 async function loadMonth() {
   const token = ++loadToken;
@@ -302,6 +354,20 @@ function parseCardDate(value) {
   return parsePostedDate(value, selectedMonth.slice(0, 4));
 }
 const queuedCharges = new WeakMap();
+function updateChargeTotals(form) {
+  const summary = (count, cents) => `${count} ${count === 1 ? 'charge' : 'charges'} · ${money(cents)}`;
+  let batchCount = 0;
+  let batchCents = 0;
+  for (const group of form.querySelectorAll('.charge-batch-group')) {
+    const rows = group.querySelectorAll('.charge-draft-item');
+    let groupCents = 0;
+    for (const row of rows) groupCents += queuedCharges.get(row).amountCents;
+    group.querySelector('.charge-group-total').textContent = summary(rows.length, groupCents);
+    batchCount += rows.length;
+    batchCents += groupCents;
+  }
+  form.querySelector('.charge-batch-total').textContent = 'Batch total · ' + summary(batchCount, batchCents);
+}
 function setChargeEditor(form, row = null) {
   const editor = form.querySelector('.charge-draft-editor');
   form.querySelector('.charge-draft-item[aria-pressed="true"]')?.setAttribute('aria-pressed', 'false');
@@ -342,6 +408,7 @@ function queueCharge(form, required = false) {
     row.textContent = [code, vendor, money(amountCents)].filter(Boolean).join(' · ');
     row.classList.toggle('charge-important', important);
     queuedCharges.set(row, { vendor, amountCents, category, important });
+    updateChargeTotals(form);
     setChargeEditor(form);
     return true;
   } catch (cause) {
@@ -361,6 +428,7 @@ function selectCard(cardId, focus = false) {
   for (const panel of root.querySelectorAll('[data-card-panel]')) {
     panel.hidden = panel.dataset.cardPanel !== cardId;
   }
+  scrollToLatestCharges();
 }
 root.addEventListener('touchstart', event => {
   cardTouchStart = null;
@@ -411,18 +479,21 @@ root.addEventListener('keydown', event => {
   if (event.key === 'Enter' && input.matches('input[data-kind]:not([type="checkbox"])')) { event.preventDefault(); input.dispatchEvent(new Event('change', { bubbles: true })); }
 });
 root.addEventListener('change', async event => {
-  const input = event.target, kind = input.dataset.kind, rowId = input.dataset.id;
+  const input = event.target, kind = input.dataset.kind;
   if (!kind) return;
   try {
     if (kind === 'month') { if (busy || dirty || !validMonth(input.value)) return; selectedMonth = input.value; notice = ''; await loadMonth(); return; }
     if (busy || budget?.closed) return;
-    const isAmount = ['bill-amount', 'statement-amount'].includes(kind);
-    const cents = isAmount ? toCents(input.value) : null;
-    const day = ['bill-day', 'statement-day', 'statement-due'].includes(kind) ? validateDay(input.value, selectedMonth) : null;
+    if (kind === 'bill-paid') {
+      const billId = input.dataset.id;
+      const paid = input.checked;
+      await commit(next => { rowById(next.bills, billId).paid = paid; });
+      document.getElementById('bill-paid-' + billId)?.focus?.({ preventScroll: true });
+      return;
+    }
+    const cents = kind === 'statement-amount' ? toCents(input.value) : null;
+    const day = ['statement-day', 'statement-due'].includes(kind) ? validateDay(input.value, selectedMonth) : null;
     await commit(next => {
-      if (kind === 'bill-amount') rowById(next.bills, rowId).amountCents = cents;
-      if (kind === 'bill-day') { const bill = rowById(next.bills, rowId); bill.day = day; bill.endOfMonth = day === daysInMonth(selectedMonth) && bill.endOfMonth; }
-      if (kind === 'bill-paid') rowById(next.bills, rowId).paid = input.checked;
       if (kind === 'statement-amount') next.statement.amountCents = cents;
       if (kind === 'statement-day') next.statement.paymentDay = day;
       if (kind === 'statement-due') next.statement.dueDay = day;
@@ -438,6 +509,31 @@ root.addEventListener('submit', async event => {
     return;
   }
   if (busy || !budget || budget.closed) return;
+  if (form.id === 'edit-bills') {
+    if (!form.classList.contains('is-editing')) return;
+    const message = form.querySelector('.schedule-editor-error');
+    message.textContent = '';
+    const removed = new Set(Array.from(form.querySelectorAll('li[data-bill-id][hidden]'), row => row.dataset.billId));
+    const lastDay = daysInMonth(selectedMonth);
+    try {
+      const bills = budget.bills.filter(bill => !removed.has(bill.id)).map(bill => {
+        try {
+          const name = fields.get('name-' + bill.id).trim();
+          if (!name) throw new Error('Enter a vendor.');
+          const day = validateDay(fields.get('day-' + bill.id), selectedMonth);
+          const amountCents = toCents(fields.get('amount-' + bill.id));
+          const paid = fields.has('paid-' + bill.id);
+          return { ...bill, name, day, amountCents, paid, endOfMonth: day === lastDay && bill.endOfMonth };
+        } catch (cause) {
+          throw new Error(bill.name + ' · ' + cause.message);
+        }
+      });
+      await commit(next => { next.bills = bills; });
+    } catch (cause) {
+      message.textContent = cause.message;
+    }
+    return;
+  }
   if (form.dataset?.chargeScope !== undefined) {
     if (!form.classList.contains('is-editing')) return;
     const message = form.querySelector('.schedule-editor-error');
@@ -589,11 +685,34 @@ root.addEventListener('click', async event => {
   if (action === 'remove-charge-draft') {
     const form = button.form;
     form.querySelector('.charge-draft-item[aria-pressed="true"]').remove();
+    updateChargeTotals(form);
     setChargeEditor(form);
     form.elements.vendor.focus();
     return;
   }
   if (action === 'select-card') return selectCard(button.dataset.card);
+  if (action === 'edit-bills') {
+    button.form.classList.add('is-editing');
+    button.form.querySelector('.bill-fields input')?.focus();
+    return;
+  }
+  if (action === 'cancel-bill-edits') {
+    const form = button.form;
+    form.reset();
+    for (const row of form.querySelectorAll('li[data-bill-id][hidden]')) row.hidden = false;
+    form.querySelector('.schedule-editor-error').textContent = '';
+    form.classList.remove('is-editing');
+    form.querySelector('[data-action="edit-bills"]').focus();
+    return;
+  }
+  if (action === 'stage-bill-removal') {
+    const row = button.closest('li');
+    const next = row.nextElementSibling ?? row.previousElementSibling;
+    row.hidden = true;
+    const target = next?.querySelector('.bill-remove-button') ?? button.form.querySelector('[type="submit"]');
+    target.focus();
+    return;
+  }
   if (action === 'edit-charges') {
     button.form.classList.add('is-editing');
     button.form.querySelector('tbody select')?.focus();
@@ -635,7 +754,6 @@ root.addEventListener('click', async event => {
   if (action === 'retry') return persist();
   if (action === 'reload') { if (dirty && !confirm('Discard unsaved changes and reload the saved month?')) return; return repository ? loadMonth() : start(null); }
   if (action === 'sign-out') { const { error: cause } = await supabase.auth.signOut(); if (cause) { error = cause.message; render(); } else await start(null); return; }
-  if (action === 'remove-bill') return commit(next => { next.bills = next.bills.filter(b => b.id !== button.dataset.id); });
   if (action === 'statement-paid') return commit(next => { next.statement.paid = !next.statement.paid; });
   if (action === 'close') return commit(next => { next.closed = !next.closed; }, true);
   if (action === 'defaults') {

@@ -131,7 +131,11 @@ export function preferencesFromMonth(document) {
   return { schemaVersion: 1, paychecks: document.paychecks.map(({ name, day, amountCents }) => ({ name, day, amountCents })), bills: document.bills.map(({ name, day, amountCents, endOfMonth }) => ({ name, day, amountCents, endOfMonth })) };
 }
 export function sortedCharges(charges) {
-  return charges.map((charge, index) => ({ ...charge, originalIndex: index })).sort((a, b) => a.postedDate && b.postedDate ? b.postedDate.localeCompare(a.postedDate) || a.originalIndex - b.originalIndex : a.postedDate ? -1 : b.postedDate ? 1 : a.originalIndex - b.originalIndex);
+  return charges.slice().sort((a, b) => {
+    if (!a.postedDate) return b.postedDate ? 1 : 0;
+    if (!b.postedDate) return -1;
+    return a.postedDate.localeCompare(b.postedDate);
+  });
 }
 export function reserveDay(document) {
   // Pending activity is already committed cash. Place it in today's interval

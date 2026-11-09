@@ -1,18 +1,29 @@
 import './styles.css';
 import './schedule.css';
-import { CATEGORIES, copy, id, money, currentMonth, validMonth, daysInMonth, monthLabel, shortMonth, toCents, parsePostedDate, displayDate, validateDay, emptyPreferences, createMonth, hasLegacyPaycheckDefaults, preferencesFromMonth, sortedCharges, totals, compactSchedule, etsyDepositDays } from './budget.js';
+import { CATEGORIES, CC_CATEGORY_CODES, CARDS, cardStatementCycle, cardStatementPayments, copy, id, money, currentMonth, validMonth, daysInMonth, monthLabel, shortMonth, toCents, parsePostedDate, displayDate, validateDay, emptyPreferences, createMonth, hasLegacyPaycheckDefaults, preferencesFromMonth, sortedCharges, totals, compactSchedule, etsyDepositDays } from './budget.js';
 import { createLocalRepository, createCloudRepository } from './repository.js';
 import { supabase } from './supabase.js';
 
 const root = document.getElementById('app');
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 let selectedMonth = currentMonth();
+const cardTabs = ['capone', 'amex'].map(id => CARDS.find(card => card.id === id));
+let activeCard = cardTabs[0].id;
+let cardTouchStart = null;
 let budget = null, revision = 0, preferences = emptyPreferences(), preferencesRevision = 0;
 let repository = null, activeUser = null, busy = false, dirty = false, error = '', notice = '', loading = true, loadToken = 0;
 const disabled = () => busy || budget?.closed ? 'disabled' : '';
 const negative = value => value < 0 ? 'negative' : '';
 const amount = value => (value / 100).toFixed(2);
-const optionList = selected => CATEGORIES.map(category => `<option ${selected === category ? 'selected' : ''}>${esc(category)}</option>`).join('');
+function optionList(selected) {
+  const options = [['', 'Uncategorized'], ...Object.entries(CC_CATEGORY_CODES)];
+  if (selected && !CATEGORIES.includes(selected)) options.push(['', selected]);
+  return options.map(([code, category]) => {
+    const label = code ? code + ' · ' + category : category;
+    return `<option value="${esc(category)}" ${selected === category ? 'selected' : ''}>${esc(label)}</option>`;
+  }).join('');
+}
+const cardOptions = selected => CARDS.map(card => `<option value="${card.id}" ${card.id === selected ? 'selected' : ''}>${card.name}</option>`).join('');
 
 function amountField(value, label, kind, rowId = '', extra = '') {
   return `<input class="amount" type="text" inputmode="decimal" value="${amount(value)}" aria-label="${esc(label)}" data-kind="${kind}" data-id="${esc(rowId)}" ${extra} ${disabled()}>`;
@@ -100,18 +111,53 @@ function scheduleMarkup() {
     </details>
   </section>`;
 }
-function cardMarkup() {
+function cardChargeTable(charges) {
   let pendingSeen = false;
-  const rows = sortedCharges(budget.charges).map(charge => {
+  const rows = sortedCharges(charges).map(charge => {
     const divider = !charge.postedDate && !pendingSeen ? '<tr class="pending-heading"><td colspan="4">Pending</td></tr>' : '';
     if (!charge.postedDate) pendingSeen = true;
-    return `${divider}<tr class="charge-row"><td class="charge-date"><label><span class="mobile-label">Date posted</span><input type="text" class="posted-date" value="${esc(displayDate(charge.postedDate))}" placeholder="MM/DD/YY" maxlength="10" autocomplete="off" aria-label="${esc(charge.vendor)} date posted; blank means pending" data-kind="charge-date" data-id="${charge.id}" ${disabled()}></label></td><td class="charge-vendor">${esc(charge.vendor)}<button class="text-button remove-charge" type="button" data-action="remove-charge" data-id="${charge.id}" aria-label="Remove ${esc(charge.vendor)} charge" ${disabled()}>Remove</button></td><td class="charge-amount">${amountField(charge.amountCents, `${charge.vendor} amount in dollars`, 'charge-amount', charge.id)}</td><td class="charge-category"><label><span class="mobile-label">Category</span><select data-kind="charge-category" data-id="${charge.id}" aria-label="${esc(charge.vendor)} category" ${disabled()}>${optionList(charge.category)}</select></label></td></tr>`;
+    return `${divider}<tr class="charge-row"><td class="charge-date"><label><span class="mobile-label">Date posted</span><input type="text" class="posted-date" value="${esc(displayDate(charge.postedDate))}" placeholder="MM/DD/YY" maxlength="10" autocomplete="off" aria-label="${esc(charge.vendor)} date posted; blank means pending" data-kind="charge-date" data-id="${charge.id}" ${disabled()}></label></td><td class="charge-vendor">${esc(charge.vendor)}<button class="text-button remove-charge" type="button" data-action="remove-charge" data-id="${charge.id}" aria-label="Remove ${esc(charge.vendor)} charge" ${disabled()}>Remove</button></td><td class="charge-amount">${amountField(charge.amountCents, `${charge.vendor} amount in dollars`, 'charge-amount', charge.id)}</td><td class="charge-category"><label><span class="mobile-label">Card</span><select data-kind="charge-card" data-id="${esc(charge.id)}" aria-label="${esc(charge.vendor)} card" ${disabled()}><option value="">Unassigned</option>${cardOptions(charge.card)}</select></label><label><span class="mobile-label">Category</span><select data-kind="charge-category" data-id="${charge.id}" aria-label="${esc(charge.vendor)} category" ${disabled()}>${optionList(charge.category)}</select></label></td></tr>`;
   }).join('');
-  const t = totals(budget);
-  return `<section class="panel card-panel"><div class="panel-heading"><div><h2>Credit card activity</h2><p>Posted newest first · pending at bottom</p></div><span class="pill">${esc(shortMonth(selectedMonth))}</span></div><div class="card-totals"><div>Posted<strong>${money(t.posted)}</strong></div><div>Pending<strong>${money(t.pending)}</strong></div><div>Total reserved<strong>${money(t.reserved)}</strong></div></div><table class="card-table"><thead><tr><th>Date posted</th><th>Vendor</th><th class="numeric">Amount ($)</th><th>Category</th></tr></thead><tbody>${rows || '<tr class="empty-row"><td colspan="4">No card activity entered for this month.</td></tr>'}</tbody></table><form id="add-charge" class="charge-form"><label>Date posted<input name="posted" type="text" placeholder="MM/DD/YY" maxlength="10" autocomplete="off" ${disabled()}></label><label>Vendor<input name="vendor" placeholder="New charge" maxlength="160" required ${disabled()}></label><label>Amount ($)<input name="amount" inputmode="decimal" placeholder="0.00" required ${disabled()}></label><label>Category<select name="category" ${disabled()}>${optionList('Uncategorized')}</select></label><button class="primary" ${disabled()}>Add</button></form><p class="hint">Blank date = pending. Enter a date as MM/DD/YY to post. Use a negative amount for a refund.</p><details class="statement"><summary>Previous statement payment · ${money(budget.statement.amountCents)}</summary><div class="statement-fields"><label>Balance ($)${amountField(budget.statement.amountCents, 'Previous statement balance', 'statement-amount')}</label><label>Pay on ${esc(shortMonth(selectedMonth))}<input type="number" min="1" max="${daysInMonth(selectedMonth)}" value="${budget.statement.paymentDay}" data-kind="statement-day" ${disabled()}></label><label>Due ${esc(shortMonth(selectedMonth))}<input type="number" min="1" max="${daysInMonth(selectedMonth)}" value="${budget.statement.dueDay}" data-kind="statement-due" ${disabled()}></label></div><button data-action="statement-paid" type="button" ${disabled()} ${!budget.statement.amountCents ? 'disabled' : ''}>${budget.statement.paid ? 'Undo paid' : 'Mark payment cleared'}</button><p class="hint">This payment covers the previous statement. New charges above are reserved separately.</p></details></section>`;
+  return `<table class="card-table"><thead><tr><th>Date posted</th><th>Vendor</th><th class="numeric">Amount ($)</th><th>Card / category</th></tr></thead><tbody>${rows || '<tr class="empty-row"><td colspan="4">No card activity entered for this month.</td></tr>'}</tbody></table>`;
+}
+
+function cardMarkup() {
+  const cycle = cardStatementCycle(selectedMonth);
+  const payments = cardStatementPayments(budget);
+  const unassigned = budget.charges.filter(charge => !charge.card);
+  const tabs = cardTabs.map(card => {
+    const selected = card.id === activeCard;
+    return `<button type="button" role="tab" id="card-tab-${card.id}"
+      aria-selected="${selected}" aria-controls="card-panel-${card.id}" tabindex="${selected ? 0 : -1}"
+      data-action="select-card" data-card="${card.id}">${card.name}</button>`;
+  }).join('');
+  const panels = cardTabs.map(card => {
+    const charges = budget.charges.filter(charge => charge.card === card.id);
+    const posted = charges.reduce((sum, charge) => sum + (charge.postedDate ? charge.amountCents : 0), 0);
+    const pending = charges.reduce((sum, charge) => sum + (charge.postedDate ? 0 : charge.amountCents), 0);
+    const payment = payments.find(item => item.id === card.id);
+    return `<div class="card-tab-panel" id="card-panel-${card.id}" role="tabpanel"
+      aria-labelledby="card-tab-${card.id}" data-card-panel="${card.id}" ${card.id === activeCard ? '' : 'hidden'}>
+      <div class="card-totals">
+        <div>Posted<strong>${money(posted)}</strong></div>
+        <div>Pending<strong>${money(pending)}</strong></div>
+        <div>Due ${shortMonth(selectedMonth)} ${card.dueDay}<strong>${money(payment.amountCents)}</strong></div>
+      </div>
+      ${cardChargeTable(charges)}
+      <form id="add-charge-${card.id}" data-card="${card.id}" class="charge-form"><label>Date posted<input name="posted" type="text" placeholder="MM/DD/YY" maxlength="10" autocomplete="off" ${disabled()}></label><label>Vendor<input name="vendor" placeholder="New charge" maxlength="160" required ${disabled()}></label><label>Amount ($)<input name="amount" inputmode="decimal" placeholder="0.00" required ${disabled()}></label><label>Category<select name="category" ${disabled()}>${optionList('Uncategorized')}</select></label><button class="primary" ${disabled()}>Add</button></form>
+    </div>`;
+  }).join('');
+  return `<section class="panel card-panel">
+    <div class="panel-heading"><div><h2>Credit card activity</h2><p>Statement cycle: ${displayDate(cycle.from)} to ${displayDate(cycle.until)}</p></div><span class="pill">${esc(shortMonth(selectedMonth))}</span></div>
+    <div class="card-tabs" role="tablist" aria-label="Credit cards">${tabs}</div>
+    ${panels}
+    <p class="hint">Entries belong to ${esc(monthLabel(selectedMonth))}, even if posted in another month. Blank date means pending. Card totals include pending entries. Use a negative amount for a refund.</p>
+    ${unassigned.length ? `<details class="statement"><summary>Unassigned charges (${unassigned.length})</summary>${cardChargeTable(unassigned)}</details>` : ''}
+    <details class="statement"><summary>Unassigned statement payment · ${money(budget.statement.amountCents)}</summary><div class="statement-fields"><label>Balance ($)${amountField(budget.statement.amountCents, 'Previous statement balance', 'statement-amount')}</label><label>Pay on ${esc(shortMonth(selectedMonth))}<input type="number" min="1" max="${daysInMonth(selectedMonth)}" value="${budget.statement.paymentDay}" data-kind="statement-day" ${disabled()}></label><label>Due ${esc(shortMonth(selectedMonth))}<input type="number" min="1" max="${daysInMonth(selectedMonth)}" value="${budget.statement.dueDay}" data-kind="statement-due" ${disabled()}></label></div><button data-action="statement-paid" type="button" ${disabled()} ${!budget.statement.amountCents ? 'disabled' : ''}>${budget.statement.paid ? 'Undo paid' : 'Mark payment cleared'}</button><p class="hint">Use this for a separate payment. If a payment is already included in an Amex or CapOne total, remove its amount here to avoid counting it twice.</p></details>
+  </section>`;
 }
 function billsMarkup() {
-  const rows = budget.bills.slice().sort((a, b) => a.day - b.day).map(bill => `<tr><td class="bill-day"><label class="day-label"><span>${esc(shortMonth(selectedMonth))}</span><input type="number" min="1" max="${daysInMonth(selectedMonth)}" value="${bill.day}" data-kind="bill-day" data-id="${bill.id}" aria-label="${esc(bill.name)} debit day" ${disabled()}></label></td><td class="bill-name">${esc(bill.name)}${bill.endOfMonth ? '<span class="hint">End of month</span>' : ''}</td><td class="bill-amount">${amountField(bill.amountCents, `${bill.name} amount`, 'bill-amount', bill.id)}</td><td class="bill-paid"><label class="paid-label"><span class="mobile-label">Paid</span><input type="checkbox" data-kind="bill-paid" data-id="${bill.id}" aria-label="${esc(bill.name)} paid" ${bill.paid ? 'checked' : ''} ${disabled()}></label></td></tr>`).join('');
+  const rows = budget.bills.slice().sort((a, b) => a.day - b.day).map(bill => `<tr><td class="bill-day"><label class="day-label"><span>${esc(shortMonth(selectedMonth))}</span><input type="number" min="1" max="${daysInMonth(selectedMonth)}" value="${bill.day}" data-kind="bill-day" data-id="${bill.id}" aria-label="${esc(bill.name)} debit day" ${disabled()}></label></td><td class="bill-name">${esc(bill.name)}${bill.endOfMonth ? '<span class="hint">End of month</span>' : ''}<button class="text-button" type="button" data-action="remove-bill" data-id="${esc(bill.id)}" aria-label="Remove ${esc(bill.name)} bill" ${disabled()}>Remove</button></td><td class="bill-amount">${amountField(bill.amountCents, `${bill.name} amount`, 'bill-amount', bill.id)}</td><td class="bill-paid"><label class="paid-label"><span class="mobile-label">Paid</span><input type="checkbox" data-kind="bill-paid" data-id="${bill.id}" aria-label="${esc(bill.name)} paid" ${bill.paid ? 'checked' : ''} ${disabled()}></label></td></tr>`).join('');
   return `<section class="panel bills-panel"><div class="panel-heading"><div><h2>Checking bills</h2><p>Amounts and dates apply to this month</p></div><span class="pill">${budget.bills.filter(b => b.paid).length} / ${budget.bills.length} paid</span></div><table class="bills-table"><thead><tr><th>Debit date</th><th>Bill</th><th class="numeric">Amount ($)</th><th class="numeric">Paid</th></tr></thead><tbody>${rows || '<tr class="empty-row"><td colspan="4">Add your recurring bills below.</td></tr>'}</tbody></table><p class="hint numeric">${money(totals(budget).remainingBills)} still to clear</p><details class="add-details"><summary>Add a bill</summary><form id="add-bill" class="inline-form"><label>Bill name<input name="name" maxlength="100" placeholder="Mortgage, water…" required ${disabled()}></label><label>Day<input name="day" type="number" min="1" max="${daysInMonth(selectedMonth)}" value="1" required ${disabled()}></label><label>Amount ($)<input name="amount" inputmode="decimal" placeholder="0.00" required ${disabled()}></label><label class="checkbox-label"><input name="eom" type="checkbox" ${disabled()}>End of month</label><button ${disabled()}>Add bill</button></form></details></section>`;
 }
 function render() {
@@ -122,6 +168,7 @@ function render() {
 }
 async function loadMonth() {
   const token = ++loadToken;
+  activeCard = cardTabs[0].id;
   loading = true; error = ''; budget = null; dirty = false; render();
   try {
     const record = await repository.loadMonth(selectedMonth);
@@ -164,9 +211,60 @@ function rowById(rows, rowId) {
   if (!row) throw new Error('This entry is no longer available. Reload the month.');
   return row;
 }
+function selectCard(cardId, focus = false) {
+  if (!cardTabs.some(card => card.id === cardId)) return;
+  activeCard = cardId;
+  for (const tab of root.querySelectorAll('[role="tab"][data-card]')) {
+    const selected = tab.dataset.card === cardId;
+    tab.setAttribute('aria-selected', String(selected));
+    tab.tabIndex = selected ? 0 : -1;
+    if (selected && focus) tab.focus();
+  }
+  for (const panel of root.querySelectorAll('[data-card-panel]')) {
+    panel.hidden = panel.dataset.cardPanel !== cardId;
+  }
+}
+root.addEventListener('touchstart', event => {
+  cardTouchStart = null;
+  if (event.touches.length !== 1 || !event.target.closest('[data-card-panel], .card-tabs') ||
+      event.target.closest('input, select, textarea, label')) return;
+  const { clientX, clientY } = event.touches[0];
+  cardTouchStart = { clientX, clientY };
+}, { passive: true });
+root.addEventListener('touchend', event => {
+  const start = cardTouchStart;
+  cardTouchStart = null;
+  if (!start || event.touches.length || !event.changedTouches.length) return;
+  const { clientX, clientY } = event.changedTouches[0];
+  const horizontal = clientX - start.clientX;
+  if (Math.abs(horizontal) < 55 || Math.abs(horizontal) <= Math.abs(clientY - start.clientY) * 1.5) return;
+  selectCard(horizontal < 0 ? cardTabs[1].id : cardTabs[0].id);
+}, { passive: true });
+root.addEventListener('touchcancel', () => { cardTouchStart = null; });
 root.addEventListener('input', event => event.target.setCustomValidity?.(''));
 root.addEventListener('keydown', event => {
   const input = event.target;
+  if (input.matches('[role="tab"][data-card]') && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
+    event.preventDefault();
+    const index = cardTabs.findIndex(card => card.id === input.dataset.card);
+    const step = event.key === 'ArrowLeft' ? -1 : 1;
+    const adjacent = (index + step + cardTabs.length) % cardTabs.length;
+    const nextIndex = event.key === 'Home' ? 0 : event.key === 'End' ? cardTabs.length - 1 : adjacent;
+    selectCard(cardTabs[nextIndex].id, true);
+    return;
+  }
+  if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey &&
+      input.matches('select[data-kind="charge-category"], select[name="category"]')) {
+    const category = CC_CATEGORY_CODES[event.key.toUpperCase()];
+    if (category) {
+      event.preventDefault();
+      if (input.value !== category) {
+        input.value = category;
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      return;
+    }
+  }
   if (event.key === 'Enter' && input.matches('input[data-kind]:not([type="checkbox"])')) { event.preventDefault(); input.dispatchEvent(new Event('change', { bubbles: true })); }
 });
 root.addEventListener('change', async event => {
@@ -186,6 +284,12 @@ root.addEventListener('change', async event => {
       if (kind === 'charge-date') rowById(next.charges, rowId).postedDate = posted;
       if (kind === 'charge-amount') rowById(next.charges, rowId).amountCents = cents;
       if (kind === 'charge-category') rowById(next.charges, rowId).category = input.value;
+      if (kind === 'charge-card') {
+        const charge = rowById(next.charges, rowId);
+        if (input.value === '') delete charge.card;
+        else if (CARDS.some(card => card.id === input.value)) charge.card = input.value;
+        else throw new Error('Choose a valid credit card.');
+      }
       if (kind === 'statement-amount') next.statement.amountCents = cents;
       if (kind === 'statement-day') next.statement.paymentDay = day;
       if (kind === 'statement-due') next.statement.dueDay = day;
@@ -248,10 +352,10 @@ root.addEventListener('submit', async event => {
     return;
   }
   try {
-    if (form.id === 'add-charge') {
+    if (form.id === 'add-charge-' + activeCard) {
       const postedDate = parsePostedDate(fields.get('posted')), amountCents = toCents(fields.get('amount'), true), vendor = String(fields.get('vendor')).trim();
       if (!vendor || !amountCents) throw new Error('Enter a vendor and a nonzero amount.');
-      await commit(next => next.charges.push({ id: id(), vendor, amountCents, postedDate, category: fields.get('category') }));
+      await commit(next => next.charges.push({ id: id(), vendor, amountCents, postedDate, card: activeCard, category: fields.get('category') }));
     }
     if (form.id === 'add-bill') {
       const name = String(fields.get('name')).trim(), amountCents = toCents(fields.get('amount')), endOfMonth = fields.has('eom');
@@ -269,6 +373,7 @@ root.addEventListener('submit', async event => {
 root.addEventListener('click', async event => {
   const button = event.target.closest('[data-action]'); if (!button || button.disabled) return;
   const action = button.dataset.action;
+  if (action === 'select-card') return selectCard(button.dataset.card);
   if (action === 'edit-schedule') {
     button.form.classList.add('is-editing');
     button.form.querySelector('input').focus();
@@ -291,6 +396,7 @@ root.addEventListener('click', async event => {
   if (action === 'reload') { if (dirty && !confirm('Discard unsaved changes and reload the saved month?')) return; return repository ? loadMonth() : start(null); }
   if (action === 'sign-out') { const { error: cause } = await supabase.auth.signOut(); if (cause) { error = cause.message; render(); } else await start(null); return; }
   if (action === 'remove-charge') return commit(next => { next.charges = next.charges.filter(c => c.id !== button.dataset.id); });
+  if (action === 'remove-bill') return commit(next => { next.bills = next.bills.filter(b => b.id !== button.dataset.id); });
   if (action === 'statement-paid') return commit(next => { next.statement.paid = !next.statement.paid; });
   if (action === 'close') return commit(next => { next.closed = !next.closed; }, true);
   if (action === 'defaults') {

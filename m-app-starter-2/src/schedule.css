@@ -57,13 +57,17 @@
     background: #edf2e9;
   }
   
-  .schedule-ledger .schedule-type-bill { --schedule-entry-color: #b42318; }
+  .schedule-ledger :is(.schedule-type-bill, .schedule-type-card) { --schedule-entry-color: #b42318; }
   .schedule-ledger .schedule-type-pay { --schedule-entry-color: #146b38; }
   .schedule-ledger .schedule-type-savings { --schedule-entry-color: #1e57a5; }
   .schedule-ledger .schedule-type-etsy { --schedule-entry-color: #77379b; }
   
-  .schedule-ledger :is(.schedule-type-bill, .schedule-type-pay, .schedule-type-savings, .schedule-type-etsy) > :is(th[scope="row"], td.numeric) {
+  .schedule-ledger :is(.schedule-type-bill, .schedule-type-card, .schedule-type-pay, .schedule-type-savings, .schedule-type-etsy) > :is(th[scope="row"], td.numeric) {
     color: var(--schedule-entry-color);
+  }
+  
+  .schedule-ledger .schedule-type-card > :is(th[scope="row"], td.numeric) {
+    font-weight: 700;
   }
   
   #edit-schedule:not(.is-editing) .schedule-edit-controls,
@@ -110,4 +114,29 @@
     justify-content: flex-end;
     gap: 0.5rem;
   }
+  .card-tabs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.25rem;
+    margin-block: 0.65rem;
+    padding: 0.25rem;
+    background: #eef2ee;
+    border-radius: 0.5rem;
+  }
+  
+  .card-tabs [role="tab"] {
+    border: 1px solid transparent;
+    background: transparent;
+  }
+  
+  .card-tabs [aria-selected="true"] {
+    background: #fff;
+    border-color: #8b968d;
+    font-weight: 700;
+  }
+  
+  .card-tab-panel[hidden] {
+    display: none;
+  }
+  
   

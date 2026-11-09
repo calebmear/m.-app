@@ -1,4 +1,22 @@
-export const CATEGORIES = ['Uncategorized', 'Groceries', 'Dining', 'Household', 'Shopping', 'Health', 'Travel', 'Other'];
+export const CC_CATEGORY_CODES = {
+  X: 'Christmas',
+  G: 'Grocery',
+  B: 'Birthday',
+  S: 'Shopping',
+  D: 'Dining',
+  C: 'Coffee',
+  F: 'Fuel',
+  H: 'Home/Health',
+  L: 'Letters&Loops',
+  M: 'Misc',
+  U: 'USX',
+  T: 'Travel',
+};
+export const CATEGORIES = ['Uncategorized', ...Object.values(CC_CATEGORY_CODES)];
+export const CARDS = [
+  { id: 'amex', name: 'Amex', dueDay: 17 },
+  { id: 'capone', name: 'CapOne', dueDay: 21 },
+];
 export const copy = value => JSON.parse(JSON.stringify(value));
 export const id = () => globalThis.crypto.randomUUID();
 export const money = cents => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100);
@@ -23,6 +41,20 @@ export function nextMonth(month) {
   const date = new Date(`${month}-01T12:00:00Z`);
   date.setUTCMonth(date.getUTCMonth() + 1);
   return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+export function cardStatementCycle(month) {
+  const date = new Date(month + '-21T12:00:00Z');
+  date.setUTCMonth(date.getUTCMonth() - 1);
+  return { from: date.toISOString().slice(0, 10), until: month + '-21' };
+}
+
+export function cardStatementPayments(document) {
+  return CARDS.map(card => {
+    const total = document.charges
+      .filter(charge => charge.card === card.id)
+      .reduce((sum, charge) => sum + charge.amountCents, 0);
+    return { ...card, amountCents: Math.max(0, total) };
+  });
 }
 export function toCents(value, allowNegative = false) {
   const text = String(value).trim().replace(/[$,]/g, '');
@@ -122,7 +154,10 @@ export function eventsForMonth(document) {
     })),
     ...document.bills.map(b => ({ day: b.day, amountCents: -b.amountCents, kind: 'bill', priority: 1 })),
     { day: document.statement.paymentDay, amountCents: -document.statement.amountCents, kind: 'statement', priority: 1 },
-    ...document.charges.map(c => ({ day: c.postedDate?.startsWith(document.month + '-') ? Number(c.postedDate.slice(-2)) : reserveDay(document), amountCents: -c.amountCents, kind: 'card', priority: 2 }))
+    ...cardStatementPayments(document).filter(card => card.amountCents).map(card => ({
+      day: card.dueDay, amountCents: -card.amountCents, kind: 'statement', priority: 1,
+    })),
+    ...document.charges.filter(c => !c.card).map(c => ({ day: c.postedDate?.startsWith(document.month + '-') ? Number(c.postedDate.slice(-2)) : reserveDay(document), amountCents: -c.amountCents, kind: 'card', priority: 2 }))
   ];
   return events.sort((a, b) => a.day - b.day || a.priority - b.priority);
 }
@@ -144,6 +179,7 @@ export function compactSchedule(document) {
   };
   const lastDay = daysInMonth(document.month);
   const cardEvents = eventsForMonth(document).filter(event => event.kind === 'card');
+  const cardPayments = cardStatementPayments(document);
   const transfersAndDeposits = [
     ...etsyDepositDays(document).map(day => ({
       day, label: 'Etsy deposit', amountCents: document.etsyDeposits?.[day] ?? 0, kind: 'etsy',
@@ -152,7 +188,8 @@ export function compactSchedule(document) {
       day, label: amountCents < 0 ? 'Transfer to savings' : 'Withdrawal from savings', amountCents, kind: 'savings',
     })),
   ].sort((a, b) => a.day - b.day);
-  const paydays = [...new Set(document.paychecks.map(pay => pay.day))].sort((a, b) => a - b);
+  const lastCardDueDay = Math.max(...cardPayments.map(card => card.dueDay));
+  const checkpointDays = [...new Set([...document.paychecks.map(pay => pay.day), lastCardDueDay])].sort((a, b) => a - b);
 
   function addExpenses(start, end) {
     const inPeriod = entry => entry.day >= start && entry.day <= end;
@@ -162,9 +199,15 @@ export function compactSchedule(document) {
     add(end, 'Bills', ordinary ? -ordinary : 0, 'expense', billDetails);
     bills.filter(bill => bill.endOfMonth).forEach(bill => add(bill.day, bill.name, -bill.amountCents, 'expense', billDetails));
     const reserved = cardEvents.filter(inPeriod).reduce((total, event) => total + event.amountCents, 0);
-    if (reserved) add(end, 'CC activity · reserved', reserved);
+    const cardDetails = { expenseType: 'card' };
+    if (reserved) add(end, 'CC activity · reserved', reserved, 'expense', cardDetails);
     const { paymentDay, amountCents } = document.statement;
-    if (amountCents && paymentDay >= start && paymentDay <= end) add(paymentDay, 'CC statement', -amountCents);
+    if (amountCents && paymentDay >= start && paymentDay <= end) add(paymentDay, 'CC statement', -amountCents, 'expense', cardDetails);
+    for (const card of cardPayments) {
+      if (card.dueDay >= start && card.dueDay <= end) {
+        add(card.dueDay, card.name + ' due', card.amountCents ? -card.amountCents : 0, 'expense', cardDetails);
+      }
+    }
   }
 
   function addTransfersAndDeposits(start, end) {
@@ -179,13 +222,14 @@ export function compactSchedule(document) {
   }
 
   let start = 1;
-  for (const day of paydays) {
+  for (const day of checkpointDays) {
     addTransfersAndDeposits(start, day);
     addExpenses(start, day);
     for (const pay of document.paychecks.filter(pay => pay.day === day)) {
       add(day, pay.name, pay.amountCents, 'pay', { pay });
     }
-    checkpoint(day);
+    // Use the balance after the card payment when payday is one day before it.
+    if (day !== lastCardDueDay - 1) checkpoint(day);
     start = day + 1;
   }
   if (start <= lastDay) {
@@ -220,6 +264,7 @@ export function validateDocument(document) {
       else if (key !== 'charges') { validateDay(row.day, document.month); if (row.amountCents < 0 || !String(row.name).trim()) throw new Error('Invalid bill or paycheck.'); }
       else {
         if (!String(row.vendor).trim()) throw new Error('Enter a vendor.');
+        if (row.card && !CARDS.some(card => card.id === row.card)) throw new Error('Choose a valid credit card.');
         if (row.postedDate) {
           if (!/^\d{4}-\d{2}-\d{2}$/.test(row.postedDate)) throw new Error('Invalid posted date.');
           const [year, month, day] = row.postedDate.split('-');

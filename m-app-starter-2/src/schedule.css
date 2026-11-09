@@ -1,0 +1,113 @@
+.schedule.schedule-ledger {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  
+  .schedule-ledger tr > th,
+  .schedule-ledger tr > td {
+    padding: 0.65rem 0.5rem;
+    border-bottom: 1px solid #e4e8e0;
+    line-height: 1.35;
+    vertical-align: middle;
+  }
+  
+  .schedule-ledger thead th {
+    text-align: left;
+    font-weight: 600;
+  }
+  
+  .schedule-ledger tbody tr > th {
+    text-align: left;
+    font-weight: 400;
+    overflow-wrap: anywhere;
+  }
+  
+  .schedule-ledger tr > .numeric {
+    text-align: right;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  
+  .schedule-ledger tbody tr > .schedule-date {
+    width: 1%;
+    text-align: left;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  
+  .schedule-ledger .schedule-balance > *,
+  .schedule-ledger .schedule-ending > * {
+    font-weight: 600;
+  }
+  
+  .schedule-ledger tbody > .schedule-balance.schedule-type-balance > * {
+    border-block: 2px solid #8b968d;
+    font-weight: 700;
+  }
+  
+  .schedule-ledger tbody > .schedule-balance.schedule-type-balance > .numeric > span {
+    display: inline-block;
+    padding-inline: 0.35rem;
+    outline: 1px solid #8b968d;
+    outline-offset: 2px;
+    border-radius: 0.3rem;
+  }
+  
+  .schedule-ledger .schedule-ending > * {
+    background: #edf2e9;
+  }
+  
+  .schedule-ledger .schedule-type-bill { --schedule-entry-color: #b42318; }
+  .schedule-ledger .schedule-type-pay { --schedule-entry-color: #146b38; }
+  .schedule-ledger .schedule-type-savings { --schedule-entry-color: #1e57a5; }
+  .schedule-ledger .schedule-type-etsy { --schedule-entry-color: #77379b; }
+  
+  .schedule-ledger :is(.schedule-type-bill, .schedule-type-pay, .schedule-type-savings, .schedule-type-etsy) > :is(th[scope="row"], td.numeric) {
+    color: var(--schedule-entry-color);
+  }
+  
+  #edit-schedule:not(.is-editing) .schedule-edit-controls,
+  #edit-schedule.is-editing .schedule-view-value {
+    display: none;
+  }
+  
+  .schedule-date-input {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.15rem;
+  }
+  
+  .schedule-ledger .schedule-date-input input {
+    box-sizing: border-box;
+    width: 3.25rem;
+  }
+  
+  .schedule-ledger .schedule-amount-input {
+    box-sizing: border-box;
+    width: clamp(4.75rem, 23vw, 7rem);
+    text-align: right;
+    color: inherit;
+  }
+  
+  .schedule-received {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    margin-top: 0.3rem;
+  }
+  
+  .schedule-editor-error {
+    color: #a52727;
+  }
+  
+  .schedule-editor-error:empty {
+    display: none;
+  }
+  
+  .schedule-editor-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0.5rem;
+  }
+  

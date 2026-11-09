@@ -1,5 +1,6 @@
 import './styles.css';
-import { CATEGORIES, copy, id, money, currentMonth, validMonth, daysInMonth, monthLabel, shortMonth, nextMonth, toCents, parsePostedDate, displayDate, validateDay, emptyPreferences, createMonth, preferencesFromMonth, sortedCharges, totals, compactSchedule } from './budget.js';
+import './schedule.css';
+import { CATEGORIES, copy, id, money, currentMonth, validMonth, daysInMonth, monthLabel, shortMonth, toCents, parsePostedDate, displayDate, validateDay, emptyPreferences, createMonth, hasLegacyPaycheckDefaults, preferencesFromMonth, sortedCharges, totals, compactSchedule, etsyDepositDays } from './budget.js';
 import { createLocalRepository, createCloudRepository } from './repository.js';
 import { supabase } from './supabase.js';
 
@@ -20,13 +21,84 @@ function renderAuth() {
   root.innerHTML = `<main class="auth"><div class="wordmark">m.</div><h1>Your month, reconciled.</h1><p>Sign in to open your paycheck schedule, bills, and card activity.</p>${error ? `<p role="alert" class="error">${esc(error)}</p>` : ''}<form id="sign-in"><label>Email<input name="email" type="email" autocomplete="email" required></label><label>Password<input name="password" type="password" autocomplete="current-password" required></label><button class="primary" ${busy ? 'disabled' : ''}>${busy ? 'Signing in…' : 'Sign in'}</button></form></main>`;
 }
 function scheduleMarkup() {
-  const rows = compactSchedule(budget).map(row => {
-    if (row.kind === 'gap') return '<tr class="gap" aria-hidden="true"><td colspan="2"></td></tr>';
-    if (row.kind === 'opening') return `<tr class="checkpoint"><td>Beginning checking</td><td>${amountField(row.amountCents, 'Beginning checking in dollars', 'opening')}</td></tr>`;
-    if (row.kind === 'pay') return `<tr class="inflow"><td><span class="pay-date">${Number(selectedMonth.slice(5))}/<input class="day-mini" type="number" min="1" max="${daysInMonth(selectedMonth)}" value="${row.pay.day}" data-kind="pay-day" data-id="${row.pay.id}" aria-label="${esc(row.pay.name)} payment day" ${disabled()}></span> ${esc(row.pay.name)}<label class="received"><input type="checkbox" data-kind="pay-received" data-id="${row.pay.id}" ${row.pay.received ? 'checked' : ''} ${disabled()}>Received</label></td><td>${amountField(row.amountCents, `${row.pay.name} paycheck in dollars`, 'pay-amount', row.pay.id)}</td></tr>`;
-    return `<tr class="${row.kind === 'balance' ? 'checkpoint' : 'outflow'}"><td>${esc(row.label)}</td><td class="numeric ${negative(row.amountCents)}">${row.kind === 'expense' && row.amountCents < 0 ? `(${money(-row.amountCents)})` : money(row.amountCents)}</td></tr>`;
+  const monthNumber = Number(selectedMonth.slice(5));
+  const lastDay = daysInMonth(selectedMonth);
+  const schedule = compactSchedule(budget);
+  const hasBothPayTypes = ['C pay', 'A pay'].every(name => budget.paychecks.some(pay => pay.name === name));
+  const rows = schedule.map((row, index) => {
+    const received = row.kind === 'pay' && row.pay.received ? ' · Received' : '';
+    const balanceClass = row.kind === 'opening' || row.kind === 'balance' ? 'schedule-balance' : '';
+    const rowClass = index === schedule.length - 1 ? 'schedule-ending' : balanceClass;
+    const rowType = row.expenseType ?? row.kind;
+    const amountClass = row.kind === 'savings' ? '' : negative(row.amountCents);
+    let date = `${monthNumber}/${row.day}`;
+    let status = received;
+    let amountName = '';
+    if (row.kind === 'opening') amountName = 'opening';
+    if (row.kind === 'etsy') amountName = 'etsy-' + row.day;
+    if (row.kind === 'pay') {
+      const paycheckIndex = budget.paychecks.indexOf(row.pay);
+      const name = esc(row.pay.name);
+      amountName = 'amount-' + paycheckIndex;
+      date = `<span class="schedule-view-value">${date}</span>
+        <span class="schedule-edit-controls schedule-date-input">${monthNumber}/<input name="day-${paycheckIndex}" aria-label="${name} day of month" type="number" min="1" max="${lastDay}" value="${row.day}" required></span>`;
+      status = `<span class="schedule-view-value">${received}</span>
+        <label class="schedule-edit-controls schedule-received"><input name="received-${paycheckIndex}" type="checkbox" ${row.pay.received ? 'checked' : ''}> Received</label>`;
+    }
+    let displayedAmount = row.amountCents < 0 ? `(${money(-row.amountCents)})` : money(row.amountCents);
+    if (amountName) {
+      const label = row.kind === 'etsy' ? `${date} ${row.label}` : row.label;
+      displayedAmount = `<span class="schedule-view-value">${displayedAmount}</span>
+        <input class="schedule-edit-controls schedule-amount-input" name="${amountName}" aria-label="${esc(label)} amount in dollars" inputmode="decimal" value="${amount(row.amountCents)}" ${row.kind === 'etsy' ? '' : 'required'}>`;
+    }
+    return `<tr class="${rowClass} schedule-type-${rowType}">
+      <td class="schedule-date">${date}</td>
+      <th scope="row">${esc(row.label)}${status}</th>
+      <td class="numeric ${amountClass}">${displayedAmount}</td>
+    </tr>`;
   }).join('');
-  return `<section class="panel schedule-panel"><div class="panel-heading"><div><h2>Monthly schedule</h2><p>Paychecks and beginning checking editable · $</p></div>${budget.closed ? '<span class="pill">Closed</span>' : ''}</div><table class="schedule"><colgroup><col style="width:64%"><col style="width:36%"></colgroup><tbody>${rows}</tbody></table><div class="rollover"><div>Rollover<span>Into ${esc(monthLabel(nextMonth(selectedMonth)))}</span></div><strong class="${negative(totals(budget).ending)}">${money(totals(budget).ending)}</strong></div><details class="add-details"><summary>Add a paycheck</summary><form id="add-pay" class="inline-form"><label>Name<input name="name" required maxlength="80" placeholder="Paycheck name" ${disabled()}></label><label>Day<input name="day" type="number" min="1" max="${daysInMonth(selectedMonth)}" value="6" required ${disabled()}></label><label>Amount ($)<input name="amount" inputmode="decimal" value="0.00" required ${disabled()}></label><button ${disabled()}>Add paycheck</button></form></details></section>`;
+
+  return `<section class="panel schedule-panel">
+    <form id="edit-schedule">
+    <div class="panel-heading">
+      <h2>Monthly schedule</h2>
+      ${budget.closed ? '<span class="pill">Closed</span>' : `<button class="schedule-view-value" type="button" data-action="edit-schedule" ${disabled()}>Edit schedule</button>
+      <div class="schedule-edit-controls schedule-editor-actions">
+        ${hasBothPayTypes ? '' : '<button type="button" data-action="load-paycheck-template">Use C/A template</button>'}
+        <button type="button" data-action="cancel-schedule">Cancel</button>
+        <button class="primary" type="submit">Save</button>
+      </div>`}
+    </div>
+    <div role="alert" class="schedule-edit-controls schedule-editor-error"></div>
+    <table class="schedule schedule-ledger" aria-label="Monthly schedule">
+      <thead>
+        <tr><th scope="col">Date</th><th scope="col">Description</th><th scope="col" class="numeric">Amount</th></tr>
+      </thead>
+      <tbody>
+        ${rows}
+      </tbody>
+    </table>
+    </form>
+    ${budget.closed ? '' : `<details class="add-details">
+      <summary>+ Savings</summary>
+      <form id="add-savings" class="inline-form">
+        <label>Type<select name="direction" ${disabled()}><option value="to-savings">Transfer to savings</option><option value="from-savings">Withdraw from savings</option></select></label>
+        <label>Date<input name="date" type="date" min="${selectedMonth}-01" max="${selectedMonth}-${lastDay}" required ${disabled()}></label>
+        <label>Amount ($)<input name="amount" inputmode="decimal" placeholder="0.00" required ${disabled()}></label>
+        <button ${disabled()}>Add transfer</button>
+        <div role="alert" class="schedule-editor-error"></div>
+      </form>
+    </details>`}
+    <details class="add-details">
+      <summary>Add a paycheck</summary>
+      <form id="add-pay" class="inline-form">
+        <label>Name<input name="name" required maxlength="80" placeholder="Paycheck name" ${disabled()}></label>
+        <label>Day<input name="day" type="number" min="1" max="${lastDay}" value="6" required ${disabled()}></label>
+        <label>Amount ($)<input name="amount" inputmode="decimal" value="0.00" required ${disabled()}></label>
+        <button ${disabled()}>Add paycheck</button>
+      </form>
+    </details>
+  </section>`;
 }
 function cardMarkup() {
   let pendingSeen = false;
@@ -46,7 +118,7 @@ function render() {
   if (supabase && !activeUser) return renderAuth();
   if (!budget) { root.innerHTML = `<main class="auth"><div class="wordmark">m.</div><p>${loading ? 'Opening your month…' : esc(error || 'Could not open your budget.')}</p>${!loading ? '<button data-action="reload">Try again</button>' : ''}</main>`; return; }
   const t = totals(budget);
-  root.innerHTML = `<div class="app-shell"><header><div class="topline"><div class="brand">m.<span>app</span></div><div class="account">${supabase ? `<span>${esc(activeUser?.email)}</span><button data-action="sign-out" ${busy || dirty ? 'disabled' : ''}>Sign out</button>` : '<span>Stored on this device</span>'}</div></div><div class="month-heading"><div><h1>${esc(monthLabel(selectedMonth))}</h1><p>Know what each paycheck covers.</p></div><label class="month-picker">Budget month<input type="month" value="${selectedMonth}" data-kind="month" aria-label="Budget month" ${busy || dirty ? 'disabled' : ''}></label></div><div class="save-line" role="status">${busy ? 'Saving…' : dirty ? 'Changes need to be saved' : supabase ? 'Saved to your account' : 'Saved on this device'}${notice ? ` · ${esc(notice)}` : ''}</div><div class="stats"><div><span>Recorded checking</span><strong class="${negative(t.checking)}">${money(t.checking)}</strong></div><div><span>Projected ending rollover</span><strong class="${negative(t.ending)}">${money(t.ending)}</strong></div><div><span>Lowest rolling balance</span><strong class="${negative(t.lowest)}">${money(t.lowest)}</strong></div></div></header>${error ? `<div class="error-banner" role="alert"><p>${esc(error)}</p><div>${dirty ? '<button data-action="retry">Retry save</button>' : ''}<button data-action="reload">Reload saved version</button></div></div>` : ''}<main class="workspace">${scheduleMarkup()}<div class="ledgers">${cardMarkup()}${billsMarkup()}</div></main><footer><div>${t.lowest < 0 ? '<span class="negative">A scheduled balance falls below zero.</span>' : 'Every scheduled balance stays at or above zero.'}</div><details><summary>Month options</summary><div class="footer-actions"><button data-action="defaults" ${busy || dirty || budget.closed ? 'disabled' : ''}>Use bills & paychecks as future defaults</button><button data-action="export" ${busy ? 'disabled' : ''}>Export this month</button><button data-action="close" ${busy || dirty ? 'disabled' : ''}>${budget.closed ? 'Reopen month' : 'Close month'}</button></div><p class="hint">All edits belong to ${esc(monthLabel(selectedMonth))}. Future defaults only populate months you have not opened yet.</p></details></footer></div>`;
+  root.innerHTML = `<div class="app-shell"><header><div class="topline"><div class="brand">m.<span>app</span></div><div class="account">${supabase ? `<span>${esc(activeUser?.email)}</span><button data-action="sign-out" ${busy || dirty ? 'disabled' : ''}>Sign out</button>` : '<span>Stored on this device</span>'}</div></div><div class="month-heading"><div><h1>${esc(monthLabel(selectedMonth))}</h1><p>Know what each paycheck covers.</p></div><label class="month-picker">Budget month<input type="month" value="${selectedMonth}" data-kind="month" aria-label="Budget month" ${busy || dirty ? 'disabled' : ''}></label></div><div class="save-line" role="status">${busy ? 'Saving…' : dirty ? 'Changes need to be saved' : supabase ? 'Saved to your account' : 'Saved on this device'}${notice ? ` · ${esc(notice)}` : ''}</div></header>${error ? `<div class="error-banner" role="alert"><p>${esc(error)}</p><div>${dirty ? '<button data-action="retry">Retry save</button>' : ''}<button data-action="reload">Reload saved version</button></div></div>` : ''}<main class="workspace">${scheduleMarkup()}<div class="ledgers">${cardMarkup()}${billsMarkup()}</div></main><footer><div>${t.lowest < 0 ? '<span class="negative">A scheduled balance falls below zero.</span>' : 'Every scheduled balance stays at or above zero.'}</div><details><summary>Month options</summary><div class="footer-actions"><button data-action="defaults" ${busy || dirty || budget.closed ? 'disabled' : ''}>Use bills & paychecks as future defaults</button><button data-action="export" ${busy ? 'disabled' : ''}>Export this month</button><button data-action="close" ${busy || dirty ? 'disabled' : ''}>${budget.closed ? 'Reopen month' : 'Close month'}</button></div><p class="hint">All edits belong to ${esc(monthLabel(selectedMonth))}. Future defaults only populate months you have not opened yet.</p></details></footer></div>`;
 }
 async function loadMonth() {
   const token = ++loadToken;
@@ -55,6 +127,9 @@ async function loadMonth() {
     const record = await repository.loadMonth(selectedMonth);
     if (token !== loadToken) return;
     budget = record ? copy(record.document) : createMonth(selectedMonth, preferences);
+    if (record && !budget.closed && hasLegacyPaycheckDefaults(budget.paychecks)) {
+      budget.paychecks = createMonth(selectedMonth).paychecks;
+    }
     revision = record?.revision ?? 0;
   } catch (cause) { if (token === loadToken) error = cause.message; }
   finally { if (token === loadToken) { loading = false; render(); } }
@@ -100,15 +175,11 @@ root.addEventListener('change', async event => {
   try {
     if (kind === 'month') { if (busy || dirty || !validMonth(input.value)) return; selectedMonth = input.value; notice = ''; await loadMonth(); return; }
     if (busy || budget?.closed) return;
-    const isAmount = ['opening', 'pay-amount', 'bill-amount', 'charge-amount', 'statement-amount'].includes(kind);
-    const cents = isAmount ? toCents(input.value, kind === 'opening' || kind === 'charge-amount') : null;
-    const day = ['pay-day', 'bill-day', 'statement-day', 'statement-due'].includes(kind) ? validateDay(input.value, selectedMonth) : null;
+    const isAmount = ['bill-amount', 'charge-amount', 'statement-amount'].includes(kind);
+    const cents = isAmount ? toCents(input.value, kind === 'charge-amount') : null;
+    const day = ['bill-day', 'statement-day', 'statement-due'].includes(kind) ? validateDay(input.value, selectedMonth) : null;
     const posted = kind === 'charge-date' ? parsePostedDate(input.value) : null;
     await commit(next => {
-      if (kind === 'opening') next.openingCents = cents;
-      if (kind === 'pay-amount') rowById(next.paychecks, rowId).amountCents = cents;
-      if (kind === 'pay-day') rowById(next.paychecks, rowId).day = day;
-      if (kind === 'pay-received') rowById(next.paychecks, rowId).received = input.checked;
       if (kind === 'bill-amount') rowById(next.bills, rowId).amountCents = cents;
       if (kind === 'bill-day') { const bill = rowById(next.bills, rowId); bill.day = day; bill.endOfMonth = day === daysInMonth(selectedMonth) && bill.endOfMonth; }
       if (kind === 'bill-paid') rowById(next.bills, rowId).paid = input.checked;
@@ -129,7 +200,53 @@ root.addEventListener('submit', async event => {
     catch (cause) { error = cause.message; busy = false; renderAuth(); }
     return;
   }
-  if (busy || budget?.closed) return;
+  if (busy || !budget || budget.closed) return;
+  if (form.id === 'add-savings') {
+    const message = form.querySelector('.schedule-editor-error');
+    try {
+      message.textContent = '';
+      const date = fields.get('date');
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date.slice(0, 7) !== selectedMonth) {
+        throw new Error('Choose a date in the selected month.');
+      }
+      const day = validateDay(date.slice(8), selectedMonth);
+      const amountCents = toCents(fields.get('amount'));
+      if (!amountCents) throw new Error('Enter an amount greater than zero.');
+      const direction = fields.get('direction');
+      if (direction !== 'to-savings' && direction !== 'from-savings') throw new Error('Choose a transfer type.');
+      const transfer = { id: id(), day, amountCents: direction === 'to-savings' ? -amountCents : amountCents };
+      await commit(next => { (next.savingsTransfers ??= []).push(transfer); });
+    } catch (cause) {
+      message.textContent = cause.message;
+    }
+    return;
+  }
+  if (form.id === 'edit-schedule') {
+    if (!form.classList.contains('is-editing')) return;
+    try {
+      const openingCents = toCents(fields.get('opening'), true);
+      const etsyDeposits = {};
+      for (const day of etsyDepositDays(budget)) {
+        const value = fields.get('etsy-' + day).trim();
+        const cents = value ? toCents(value) : 0;
+        if (cents) etsyDeposits[day] = cents;
+      }
+      const paychecks = budget.paychecks.map((pay, index) => ({
+        ...pay,
+        day: validateDay(fields.get('day-' + index), selectedMonth),
+        amountCents: toCents(fields.get('amount-' + index)),
+        received: fields.has('received-' + index),
+      }));
+      await commit(next => {
+        next.openingCents = openingCents;
+        next.etsyDeposits = etsyDeposits;
+        next.paychecks = paychecks;
+      });
+    } catch (cause) {
+      form.querySelector('.schedule-editor-error').textContent = cause.message;
+    }
+    return;
+  }
   try {
     if (form.id === 'add-charge') {
       const postedDate = parsePostedDate(fields.get('posted')), amountCents = toCents(fields.get('amount'), true), vendor = String(fields.get('vendor')).trim();
@@ -152,6 +269,24 @@ root.addEventListener('submit', async event => {
 root.addEventListener('click', async event => {
   const button = event.target.closest('[data-action]'); if (!button || button.disabled) return;
   const action = button.dataset.action;
+  if (action === 'edit-schedule') {
+    button.form.classList.add('is-editing');
+    button.form.querySelector('input').focus();
+    return;
+  }
+  if (action === 'cancel-schedule') {
+    const form = button.form;
+    form.reset();
+    form.querySelector('.schedule-editor-error').textContent = '';
+    form.classList.remove('is-editing');
+    form.querySelector('[data-action="edit-schedule"]').focus();
+    return;
+  }
+  if (action === 'load-paycheck-template') {
+    if (!budget || busy || budget.closed) return;
+    if (!confirm('Replace this month’s paycheck rows with the C/A template? Any unsaved schedule edits will be discarded.')) return;
+    return commit(next => { next.paychecks = createMonth(next.month).paychecks; });
+  }
   if (action === 'retry') return persist();
   if (action === 'reload') { if (dirty && !confirm('Discard unsaved changes and reload the saved month?')) return; return repository ? loadMonth() : start(null); }
   if (action === 'sign-out') { const { error: cause } = await supabase.auth.signOut(); if (cause) { error = cause.message; render(); } else await start(null); return; }

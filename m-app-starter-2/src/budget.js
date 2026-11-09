@@ -42,10 +42,11 @@ export function nextMonth(month) {
   date.setUTCMonth(date.getUTCMonth() + 1);
   return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
 }
-export function cardStatementCycle(month) {
-  const date = new Date(month + '-21T12:00:00Z');
+export function cardStatementCycle(month, closingDay = 21) {
+  const until = month + '-' + String(closingDay).padStart(2, '0');
+  const date = new Date(until + 'T12:00:00Z');
   date.setUTCMonth(date.getUTCMonth() - 1);
-  return { from: date.toISOString().slice(0, 10), until: month + '-21' };
+  return { from: date.toISOString().slice(0, 10), until };
 }
 
 export function cardStatementPayments(document) {
@@ -65,15 +66,17 @@ export function toCents(value, allowNegative = false) {
   if (!Number.isSafeInteger(cents) || (!allowNegative && negative)) throw new Error('Enter a valid amount of zero or more.');
   return negative ? -cents : cents;
 }
-export function parsePostedDate(value) {
+export function parsePostedDate(value, defaultYear) {
   const text = String(value).trim();
   if (!text) return null;
-  const match = /^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/.exec(text);
-  if (!match) throw new Error('Use MM/DD/YY, or leave the date blank for pending.');
+  const match = /^(\d{1,2})\/(\d{1,2})(?:\/(\d{2}|\d{4}))?$/.exec(text);
+  if (!match) throw new Error('Use MM/DD or MM/DD/YY, or leave the date blank for pending.');
   const month = Number(match[1]), day = Number(match[2]);
-  const year = match[3].length === 2 ? 2000 + Number(match[3]) : Number(match[3]);
+  const enteredYear = match[3];
+  if (!enteredYear && !defaultYear) throw new Error('Enter a year for this date.');
+  const year = enteredYear?.length === 2 ? 2000 + Number(enteredYear) : Number(enteredYear ?? defaultYear);
   const date = new Date(Date.UTC(year, month - 1, day));
-  if (year < 1000 || date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) throw new Error('Enter a real calendar date as MM/DD/YY.');
+  if (year < 1000 || date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) throw new Error('Enter a real calendar date.');
   return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 export function displayDate(date) {

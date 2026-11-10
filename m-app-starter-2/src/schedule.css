@@ -1,421 +1,461 @@
 .schedule.schedule-ledger {
-    width: 100%;
-    border-collapse: collapse;
-  }
-  
-  .schedule-ledger tr > th,
-  .schedule-ledger tr > td {
-    padding: 0.65rem 0.5rem;
-    border-bottom: 1px solid #e4e8e0;
-    line-height: 1.35;
-    vertical-align: middle;
-  }
-  
-  .schedule-ledger thead th {
-    text-align: left;
-    font-weight: 600;
-  }
-  
-  .schedule-ledger tbody tr > th {
-    text-align: left;
-    font-weight: 400;
-    overflow-wrap: anywhere;
-  }
-  
-  .schedule-ledger tr > .numeric {
-    text-align: right;
-    white-space: nowrap;
-    font-variant-numeric: tabular-nums;
-  }
-  
-  .schedule-ledger tbody tr > .schedule-date {
-    width: 1%;
-    text-align: left;
-    white-space: nowrap;
-    font-variant-numeric: tabular-nums;
-  }
-  
-  .schedule-ledger .schedule-balance > *,
-  .schedule-ledger .schedule-ending > * {
-    font-weight: 600;
-  }
-  
-  .schedule-ledger tbody > .schedule-balance.schedule-type-balance > * {
-    border-block: 2px solid #8b968d;
-    font-weight: 700;
-  }
-  
-  .schedule-ledger tbody > .schedule-balance.schedule-type-balance > .numeric > span {
-    display: inline-block;
-    padding-inline: 0.35rem;
-    outline: 1px solid #8b968d;
-    outline-offset: 2px;
-    border-radius: 0.3rem;
-  }
-  
-  .schedule-ledger .schedule-ending > * {
-    background: #edf2e9;
-  }
-  
-  .schedule-ledger :is(.schedule-type-bill, .schedule-type-card) { --schedule-entry-color: #b42318; }
-  .schedule-ledger .schedule-type-pay { --schedule-entry-color: #146b38; }
-  .schedule-ledger .schedule-type-savings { --schedule-entry-color: #1e57a5; }
-  .schedule-ledger .schedule-type-etsy { --schedule-entry-color: #77379b; }
-  
-  .schedule-ledger :is(.schedule-type-bill, .schedule-type-card, .schedule-type-pay, .schedule-type-savings, .schedule-type-etsy) > :is(th[scope="row"], td.numeric) {
-    color: var(--schedule-entry-color);
-  }
-  
-  .schedule-ledger .schedule-type-card > :is(th[scope="row"], td.numeric) {
-    font-weight: 700;
-  }
-  
-  #edit-schedule:not(.is-editing) .schedule-edit-controls,
-  #edit-schedule.is-editing .schedule-view-value {
-    display: none;
-  }
-  
-  .schedule-date-input {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.15rem;
-  }
-  
-  .schedule-ledger .schedule-date-input input {
-    box-sizing: border-box;
-    width: 3.25rem;
-  }
-  
-  .schedule-ledger .schedule-amount-input {
-    box-sizing: border-box;
-    width: clamp(4.75rem, 23vw, 7rem);
-    text-align: right;
-    color: inherit;
-  }
-  
-  .schedule-received {
-    display: flex;
-    align-items: center;
-    gap: 0.25rem;
-    margin-top: 0.3rem;
-  }
-  
-  .schedule-editor-error {
-    color: #a52727;
-  }
-  
-  .schedule-editor-error:empty {
-    display: none;
-  }
-  
-  .schedule-editor-actions {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: flex-end;
-    gap: 0.5rem;
-  }
-  .card-tabs {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 0.25rem;
-    margin-block: 0.65rem;
-    padding: 0.25rem;
-    background: #eef2ee;
-    border-radius: 0.5rem;
-  }
-  
-  .card-tabs [role="tab"] {
-    border: 1px solid transparent;
-    background: transparent;
-  }
-  
-  .card-tabs [aria-selected="true"] {
-    background: #fff;
-    border-color: #8b968d;
-    font-weight: 700;
-  }
-  
-  .card-tab-panel[hidden] {
-    display: none;
-  }
-  
-  .charge-add-button {
-    width: 100%;
-  }
-  
-  .charge-dialog {
-    box-sizing: border-box;
-    width: min(44rem, calc(100% - 2rem));
-    max-height: calc(100% - 2rem);
-    padding: 1rem;
-    border: 1px solid #d5ddd4;
-    border-radius: 0.75rem;
-    background: #fff;
-    color: inherit;
-  }
-  
-  .charge-dialog::backdrop {
-    background: rgb(20 33 25 / 45%);
-  }
-  
-  .charge-dialog h3 {
-    margin: 0 0 0.65rem;
-  }
-  
-  .charge-batch-group {
-    min-inline-size: 0;
-    margin: 0 0 0.75rem;
-    padding: 0.5rem;
-    border: 1px solid #e4e8e0;
-    border-radius: 0.5rem;
-  }
-  
-  .charge-batch-date {
-    display: grid;
-    gap: 0.25rem;
-    width: min(100%, 12rem);
-    margin-bottom: 0.5rem;
-  }
-  
-  .charge-draft-list {
-    display: grid;
-    gap: 0.25rem;
-  }
-  
-  .charge-draft-item {
-    width: 100%;
-    text-align: left;
-    overflow-wrap: anywhere;
-  }
-  
-  .charge-draft-item[aria-pressed="true"] {
-    outline: 2px solid #4d7257;
-  }
-  
-  .charge-draft-item.charge-important {
-    font-weight: 700;
-  }
-  
-  .charge-draft-editor {
-    display: grid;
-    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
-    gap: 0.45rem 0.6rem;
-    margin-block: 0.65rem 0.25rem;
-  }
-  
-  .charge-draft-editor label:not(.checkbox-label) {
-    display: grid;
-    gap: 0.2rem;
-    min-width: 0;
-  }
-  
-  .charge-draft-editor :is(input:not([type="checkbox"]), select) {
-    box-sizing: border-box;
-    width: 100%;
-    min-width: 0;
-  }
-  
-  .charge-draft-vendor,
-  .charge-draft-actions {
-    grid-column: 1 / -1;
-  }
-  
-  .charge-draft-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.4rem;
-  }
-  
-  .charge-draft-actions button[hidden] {
-    display: none;
-  }
-  .charge-batch-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-    margin-block: 0.65rem;
-  }
-  
-  .charge-list {
-    margin-block: 0.75rem;
-  }
-  
-  .charge-list-actions {
-    display: flex;
-    justify-content: flex-end;
-    margin-bottom: 0.35rem;
-  }
-  
-  .charge-list:not(.is-editing) .charge-list-edit,
-  .charge-list.is-editing .charge-list-view {
-    display: none;
-  }
-  
-  .charge-list-scroll {
-    max-height: min(22rem, 50vh);
-    overflow: auto;
-  }
-  
-  .bill-list {
-    list-style: none;
-    padding: 0;
-    margin: 0.5rem 0;
-  }
-  
-  .bill-list > li {
-    padding: 0.35rem 0;
-    border-bottom: 1px solid #e4e8e0;
-  }
-  
-  .bill-summary {
-    display: grid;
-    grid-template-columns: 2.5rem minmax(0, 1fr) max-content max-content;
-    align-items: center;
-    gap: 0.4rem;
-  }
-  
-  .bill-summary-name {
-    overflow-wrap: anywhere;
-  }
-  
-  .bill-summary-date,
-  .bill-summary-amount {
-    white-space: nowrap;
-    font-variant-numeric: tabular-nums;
-  }
-  
-  .bill-edit-button {
-    flex-shrink: 0;
-    white-space: nowrap;
-  }
-  
-  #edit-bills:not(.is-editing) :is(.bill-fields, .bill-edit-actions),
-  #edit-bills.is-editing :is(.bill-summary, .bill-edit-button),
-  #edit-bills.is-editing ~ .add-details,
-  .bill-list > li[hidden] {
-    display: none;
-  }
-  
-  .bill-fields {
-    display: grid;
-    grid-template-columns: 3rem minmax(0, 1fr) minmax(4rem, 5.5rem) max-content 2.25rem;
-    align-items: center;
-    gap: 0.25rem 0.4rem;
-  }
-  
-  .bill-fields .bill-paid-field,
-  .bill-summary .bill-paid-field {
-    display: flex;
-    grid-column: 4;
-    align-items: center;
-    gap: 0.25rem;
-    margin: 0;
-    font-size: 0.8rem;
-    white-space: nowrap;
-  }
-  
-  .bill-paid-field input[type="checkbox"] {
-    width: 1rem;
-    height: 1rem;
-    flex: none;
-    margin: 0;
-  }
-  
-  .bill-fields input:not([type="checkbox"]) {
-    box-sizing: border-box;
-    width: 100%;
-    min-width: 0;
-    padding-inline: 0.35rem;
-  }
-  
-  .bill-remove-button {
-    padding-inline: 0;
-  }
-  
-  .bill-edit-actions {
-    display: flex;
-    justify-content: flex-end;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-    margin-top: 0.65rem;
-  }
-  
-  .charge-list-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 0.875rem;
-  }
-  
-  .charge-list-table th,
-  .charge-list-table td {
-    padding: 0.3rem 0.35rem;
-    border-bottom: 1px solid #e4e8e0;
-    text-align: left;
-  }
-  
-  .charge-list-table :is(th, td):not(:nth-child(2)) {
-    width: 1%;
-    white-space: nowrap;
-  }
-  
-  .charge-list-table td:nth-child(2) {
-    overflow-wrap: anywhere;
-  }
-  
-  .charge-list-table .numeric {
-    text-align: right;
-    font-variant-numeric: tabular-nums;
-  }
-  
-  .charge-list-table tbody tr {
-    --charge-color: #a52830;
-  }
-  
-  .charge-list-table [data-charge-code="G"] {
-    --charge-color: #215ca2;
-  }
-  
-  .charge-list-table [data-charge-code="H"] {
-    --charge-color: #602e85;
-  }
-  
-  .charge-list-table [data-charge-code="X"] {
-    --charge-color: #8962ac;
-  }
-  
-  .charge-list-table tbody .charge-important {
-    --charge-color: #000;
-  }
-  
-  .charge-list-table td > .charge-list-view {
-    color: var(--charge-color);
-  }
-  
-  .charge-list-table .charge-important .charge-list-view {
-    font-weight: 700;
-  }
-  
-  .charge-list.is-editing .charge-list-table {
-    min-width: 29rem;
-  }
-  
-  .charge-list-table .charge-list-edit {
-    display: grid;
-    gap: 0.25rem;
-  }
-  
-  .charge-list-table .charge-list-edit :is(input:not([type="checkbox"]), select) {
-    box-sizing: border-box;
-    width: 100%;
-    min-width: 0;
-  }
-  
-  .charge-list-table .charge-list-edit input[name^="posted-"] {
-    width: 7rem;
-  }
-  
-  .charge-list-table .charge-list-edit input[name^="amount-"] {
-    width: 6rem;
-    text-align: right;
-  }
-  
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.schedule-ledger tr > th,
+.schedule-ledger tr > td {
+  padding: 0.65rem 0.5rem;
+  border-bottom: 1px solid #e4e8e0;
+  line-height: 1.35;
+  vertical-align: middle;
+}
+
+.schedule-ledger thead th {
+  text-align: left;
+  font-weight: 600;
+}
+
+.schedule-ledger tbody tr > th {
+  text-align: left;
+  font-weight: 400;
+  overflow-wrap: anywhere;
+}
+
+.schedule-ledger tr > .numeric {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.schedule-ledger tbody tr > .schedule-date {
+  width: 1%;
+  text-align: left;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.schedule-ledger .schedule-balance > *,
+.schedule-ledger .schedule-ending > * {
+  font-weight: 600;
+}
+
+.schedule-ledger tbody > .schedule-balance.schedule-type-balance > * {
+  border-block: 2px solid #8b968d;
+  font-weight: 700;
+}
+
+.schedule-ledger tbody > .schedule-balance.schedule-type-balance > .numeric > span {
+  display: inline-block;
+  padding-inline: 0.35rem;
+  outline: 1px solid #8b968d;
+  outline-offset: 2px;
+  border-radius: 0.3rem;
+}
+
+.schedule-ledger .schedule-ending > * {
+  background: #edf2e9;
+}
+
+.schedule-ledger :is(.schedule-type-bill, .schedule-type-card) { --schedule-entry-color: #b42318; }
+.schedule-ledger .schedule-type-pay { --schedule-entry-color: #146b38; }
+.schedule-ledger .schedule-type-savings { --schedule-entry-color: #1e57a5; }
+.schedule-ledger .schedule-type-etsy { --schedule-entry-color: #77379b; }
+
+.schedule-ledger :is(.schedule-type-bill, .schedule-type-card, .schedule-type-pay, .schedule-type-savings, .schedule-type-etsy) > :is(th[scope="row"], td.numeric) {
+  color: var(--schedule-entry-color);
+}
+
+.schedule-ledger .schedule-type-card > :is(th[scope="row"], td.numeric) {
+  font-weight: 700;
+}
+
+#edit-schedule:not(.is-editing) .schedule-edit-controls,
+#edit-schedule.is-editing .schedule-view-value {
+  display: none;
+}
+
+.schedule-date-input {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+}
+
+.schedule-ledger .schedule-date-input input {
+  box-sizing: border-box;
+  width: 3.25rem;
+}
+
+.schedule-ledger .schedule-amount-input {
+  box-sizing: border-box;
+  width: clamp(4.75rem, 23vw, 7rem);
+  text-align: right;
+  color: inherit;
+}
+
+.schedule-received {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-top: 0.3rem;
+}
+
+.schedule-editor-error {
+  color: #a52727;
+}
+
+.schedule-editor-error:empty {
+  display: none;
+}
+
+.schedule-editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+.card-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.25rem;
+  margin-block: 0.65rem;
+  padding: 0.25rem;
+  background: #eef2ee;
+  border-radius: 0.5rem;
+}
+
+.card-tabs [role="tab"] {
+  border: 1px solid transparent;
+  background: transparent;
+}
+
+.card-tabs [aria-selected="true"] {
+  background: #fff;
+  border-color: #8b968d;
+  font-weight: 700;
+}
+
+.card-tab-panel[hidden] {
+  display: none;
+}
+
+.charge-add-button {
+  width: 100%;
+}
+
+.charge-dialog {
+  box-sizing: border-box;
+  width: min(44rem, calc(100% - 2rem));
+  max-height: calc(100% - 2rem);
+  padding: 1rem;
+  border: 1px solid #d5ddd4;
+  border-radius: 0.75rem;
+  background: #fff;
+  color: inherit;
+}
+
+.charge-dialog::backdrop {
+  background: rgb(20 33 25 / 45%);
+}
+
+.charge-dialog h3 {
+  margin: 0 0 0.65rem;
+}
+
+.charge-batch-group {
+  min-inline-size: 0;
+  margin: 0 0 0.75rem;
+  padding: 0.5rem;
+  border: 1px solid #e4e8e0;
+  border-radius: 0.5rem;
+}
+
+.charge-batch-date {
+  display: grid;
+  gap: 0.25rem;
+  width: min(100%, 12rem);
+  margin-bottom: 0.5rem;
+}
+
+.charge-draft-list {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.charge-draft-item {
+  width: 100%;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.charge-draft-item[aria-pressed="true"] {
+  outline: 2px solid #4d7257;
+}
+
+.charge-draft-item.charge-important {
+  font-weight: 700;
+}
+
+.charge-draft-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+  gap: 0.45rem 0.6rem;
+  margin-block: 0.65rem 0.25rem;
+}
+
+.charge-draft-editor label:not(.checkbox-label) {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.charge-draft-editor :is(input:not([type="checkbox"]), select) {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+}
+
+.charge-draft-vendor,
+.charge-draft-actions {
+  grid-column: 1 / -1;
+}
+
+.charge-draft-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.charge-draft-actions button[hidden] {
+  display: none;
+}
+.charge-batch-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-block: 0.65rem;
+}
+
+.charge-list {
+  margin-block: 0.75rem;
+}
+
+.charge-list-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 0.35rem;
+}
+
+.charge-list:not(.is-editing) .charge-list-edit,
+.charge-list.is-editing .charge-list-view {
+  display: none;
+}
+
+.charge-list-scroll {
+  max-height: min(22rem, 50vh);
+  overflow: auto;
+}
+
+.bill-list {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0;
+}
+
+.bill-list > li {
+  padding: 0.35rem 0;
+  border-bottom: 1px solid #e4e8e0;
+}
+
+.bill-summary {
+  display: grid;
+  grid-template-columns: 2.5rem minmax(0, 1fr) max-content max-content;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.bill-summary-name {
+  overflow-wrap: anywhere;
+}
+
+.bill-summary-date,
+.bill-summary-amount {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.bill-edit-button {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+#edit-bills:not(.is-editing) :is(.bill-fields, .bill-edit-actions),
+#edit-bills.is-editing :is(.bill-summary, .bill-edit-button),
+#edit-bills.is-editing ~ .add-details,
+.bill-list > li[hidden] {
+  display: none;
+}
+
+.bill-fields {
+  display: grid;
+  grid-template-columns: 3rem minmax(0, 1fr) minmax(4rem, 5.5rem) max-content 2.25rem;
+  align-items: center;
+  gap: 0.25rem 0.4rem;
+}
+
+.bill-fields .bill-paid-field,
+.bill-summary .bill-paid-field {
+  display: flex;
+  grid-column: 4;
+  align-items: center;
+  gap: 0.25rem;
+  margin: 0;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.bill-paid-field input[type="checkbox"] {
+  width: 1rem;
+  height: 1rem;
+  flex: none;
+  margin: 0;
+}
+
+.bill-fields input:not([type="checkbox"]) {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding-inline: 0.35rem;
+}
+
+.bill-remove-button {
+  padding-inline: 0;
+}
+
+.bill-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.65rem;
+}
+
+.charge-list-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 1rem;
+}
+
+.charge-list-table th,
+.charge-list-table td {
+  padding: 0.3rem 0.35rem;
+  border-bottom: 1px solid #e4e8e0;
+  text-align: left;
+}
+
+.charge-list-table :is(th, td):not(:nth-child(2)) {
+  width: 1%;
+  white-space: nowrap;
+}
+
+.charge-list-table td:nth-child(2) {
+  overflow-wrap: anywhere;
+}
+
+.charge-list-table .numeric {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.charge-list-table tbody tr {
+  --charge-color: #a52830;
+}
+
+.charge-list-table [data-charge-code="G"] {
+  --charge-color: #215ca2;
+}
+
+.charge-list-table [data-charge-code="H"] {
+  --charge-color: #602e85;
+}
+
+.charge-list-table [data-charge-code="X"] {
+  --charge-color: #8962ac;
+}
+
+.charge-list-table tbody .charge-important {
+  --charge-color: #000;
+}
+
+.charge-list-table td > .charge-list-view {
+  color: var(--charge-color);
+}
+
+.charge-list-table .charge-important .charge-list-view {
+  font-weight: 700;
+}
+
+.charge-list.is-editing .charge-list-table {
+  min-width: 29rem;
+}
+
+.charge-list-table .charge-list-edit {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.charge-list-table .charge-list-edit :is(input:not([type="checkbox"]), select) {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+}
+
+.charge-list-table .charge-list-edit input[name^="posted-"] {
+  width: 7rem;
+}
+
+.charge-list-table .charge-list-edit input[name^="amount-"] {
+  width: 6rem;
+  text-align: right;
+}
+
+/* Match the app's list typography and override the legacy italic cells. */
+.schedule.schedule-ledger {
+font-family: inherit;
+font-size: inherit;
+}
+
+.schedule.schedule-ledger tbody :is(th, td) {
+font-size: inherit;
+font-style: normal;
+}
+
+/* Keep the read-only schedule on one line per row. */
+#edit-schedule:not(.is-editing) .schedule-ledger {
+table-layout: auto;
+}
+
+#edit-schedule:not(.is-editing) .schedule-ledger tbody tr {
+height: 2.75rem;
+}
+
+#edit-schedule:not(.is-editing) .schedule-ledger tbody tr > * {
+padding-block: 0.45rem;
+}
+
+#edit-schedule:not(.is-editing) .schedule-ledger .numeric {
+width: 1%;
+}
+
+#edit-schedule:not(.is-editing) .schedule-description {
+display: block;
+contain: inline-size;
+overflow: hidden;
+white-space: nowrap;
+text-overflow: ellipsis;
+}
+
+/* Display the existing wordmark without its suffix. */
+.topline .brand > span {
+display: none;
+}

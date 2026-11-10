@@ -7,3 +7,199 @@
 @media(max-width:420px){.bills-table,.bills-table tbody{display:block}.bills-table thead{position:absolute;width:1px;height:1px;clip-path:inset(50%);overflow:hidden}.bills-table tr:not(.empty-row){display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-areas:'name paid' 'day amount';gap:8px 12px;border-bottom:1px solid var(--line);padding:12px 0}.bills-table td{padding:0;border:0;min-width:0}.bill-day{grid-area:day;align-self:center}.bill-name{grid-area:name;align-self:center}.bill-amount{grid-area:amount}.bill-paid{grid-area:paid}.bills-table .amount{width:100%}.bills-table .mobile-label{display:inline}.bills-table .empty-row td{display:block}.inline-form{grid-template-columns:1fr 1fr}.inline-form label:first-child{grid-column:1/-1}.statement-fields{grid-template-columns:1fr 1fr}.statement-fields label:first-child{grid-column:1/-1}.stats span{font-size:11px}.stats strong{font-size:23px}}
 @media(pointer:coarse){input:not([type=checkbox]),select{font-size:16px!important;min-height:44px}button{min-height:44px;min-width:44px}summary{min-height:44px}.received,.paid-label,.checkbox-label{min-height:44px;min-width:44px}.day-mini{width:49px}.card-table select{font-size:16px}.remove-charge{min-height:36px!important}.panel input.amount{padding-left:5px;padding-right:5px}}
 @media(prefers-color-scheme:dark){:root{color:#e9f0e7;background:#141b16;--paper:#202a22;--muted:#afbeae;--line:#3c4b3d;--green:#a4d9ae;--soft:#2a4030;--red:#ffa6a0;--bg:#18221b;color-scheme:dark}button.primary{background:#a4d9ae;color:#162a1c;border-color:#a4d9ae}.error-banner{background:#3d2521;color:#ffb8a9;border-color:#684039}.error-banner button{background:var(--paper)}}
+
+
+/* m.app palette */
+:root {
+  color: #18221c;
+  background: #ffffff;
+  color-scheme: light;
+  --bg: #ffffff;
+  --paper: #ffffff;
+  --muted: #566159;
+  --line: #dfe5e0;
+  --accent: #254736;
+  --accent-fill: var(--accent);
+  --accent-text: #ffffff;
+  --green: var(--accent); /* Used by the original stylesheet for controls. */
+  --soft: #f4f7f4;
+  --neutral: #ffffff;
+  --income: #305640;
+  --red: #a03242;
+  --deposit: #755285;
+  --savings: #3d636b;
+  --pending: #775116;
+  --pending-bg: #fbf3e2;
+  --error-bg: #fcf0f2;
+  --error-line: #ebc6ce;
+  --panel-shadow: 0 2px 8px rgb(24 34 28 / 4%);
+}
+
+.brand, .wordmark {
+  color: var(--accent);
+}
+.brand span {
+  color: var(--muted);
+}
+.month-heading h1 {
+  font-weight: 600;
+}
+.app-shell {
+  box-shadow: 0 12px 36px rgb(24 34 28 / 5%);
+}
+.workspace .panel {
+  border-radius: 14px;
+  box-shadow: var(--panel-shadow);
+}
+.panel-heading p, .hint, .save-line {
+  line-height: 1.5;
+}
+
+.stats {
+  gap: clamp(8px, 2vw, 16px);
+}
+.stats > div {
+  padding: 8px clamp(6px, 1.5vw, 14px);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--neutral);
+}
+.stats > div:last-child {
+  background: var(--soft);
+}
+.stats strong, .rollover strong, .card-totals strong {
+  font-weight: 600;
+}
+.stats .stats-label-row {
+  flex-wrap: wrap;
+  gap: 2px 6px;
+}
+.stats .beginning-balance-input {
+  font-weight: 600;
+}
+
+.card-totals, .rollover {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.card-totals {
+  background: var(--neutral);
+}
+.card-totals > div:last-child strong,
+.rollover strong {
+  color: var(--accent);
+}
+.card-table .pending-heading td {
+  background: var(--pending-bg);
+  color: var(--pending);
+}
+.schedule.schedule-ledger tr > th,
+.schedule.schedule-ledger tr > td {
+  border-color: var(--line);
+}
+.schedule .inflow, .schedule .inflow input.amount {
+  color: var(--income);
+}
+.schedule .etsy-row, .schedule .etsy-row input.amount {
+  color: var(--deposit);
+}
+.schedule .savings-row, .schedule .savings-row input.amount {
+  color: var(--savings);
+}
+.error-banner {
+  background: var(--error-bg);
+  border-color: var(--error-line);
+  color: var(--red);
+}
+.error-banner button {
+  background: var(--paper);
+}
+
+button.primary {
+  background: var(--accent-fill);
+  border-color: var(--accent-fill);
+  color: var(--accent-text);
+}
+.schedule-edit-button[aria-pressed="true"],
+.begin-edit-button[aria-expanded="true"] {
+  background: var(--soft);
+  color: var(--accent);
+}
+@media (hover: hover) {
+  button:not(:disabled):not(.primary):not(.text-button):hover {
+    border-color: var(--accent);
+  }
+}
+
+/* Let the native month control shrink inside the phone header. */
+@media (max-width: 759px) {
+  .month-heading {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .month-heading > *,
+  .month-picker > :is(input, select) {
+    min-inline-size: 0;
+    max-inline-size: 100%;
+  }
+
+  .month-picker {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .month-picker > :is(input, select) {
+    display: block;
+    inline-size: 100%;
+    font-size: 16px;
+    min-height: 44px;
+  }
+
+  .month-picker > input::-webkit-date-and-time-value {
+    min-width: 0;
+    margin: 0;
+    text-align: left;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+@media (pointer: coarse) {
+  html,
+  .app-shell,
+  .charge-list-scroll,
+  .charge-dialog {
+    touch-action: pan-x pan-y;
+  }
+}
+
+.month-heading.month-navigation {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) 44px;
+  gap: 8px;
+  width: 100%;
+  max-width: 400px;
+  margin-inline: auto;
+  text-align: center;
+  touch-action: pan-y;
+}
+
+.month-navigation h1 {
+  font-size: clamp(18px, 5.5vw, 30px);
+  line-height: 1.15;
+}
+
+.month-navigation button {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  font-size: 27px;
+  line-height: 1;
+}
+
+.month-navigation-caption {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
+}

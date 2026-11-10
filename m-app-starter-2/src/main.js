@@ -7,6 +7,9 @@ import { connectMonthNavigation, monthNavigationMarkup } from './month-navigatio
 
 
 const root = document.getElementById('app');
+const headerSizeObserver = new ResizeObserver(([{ target }]) => {
+  root.style.setProperty('--budget-header-height', target.offsetHeight + 'px');
+});
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 let selectedMonth = currentMonth();
 const cardTabs = ['capone', 'amex'].map(id => CARDS.find(card => card.id === id));
@@ -380,12 +383,16 @@ function billsMarkup() {
   </section>`;
 }
 function render() {
+  headerSizeObserver.disconnect();
   if (supabase && !activeUser) return renderAuth();
   if (!budget) { root.innerHTML = `<main class="auth"><div class="wordmark">m.</div><p>${loading ? 'Opening your month…' : esc(error || 'Could not open your budget.')}</p>${!loading ? '<button data-action="reload">Try again</button>' : ''}</main>`; return; }
   const t = totals(budget);
   const tileScroll = root.querySelector('.workspace')?.scrollLeft ?? 0;
   root.innerHTML = `<div class="app-shell"><header><div class="topline"><div class="brand">m.</div><div class="account">${supabase ? `<button data-action="sign-out" ${busy || dirty ? 'disabled' : ''}>Sign out</button>` : '<span>Stored on this device</span>'}</div></div>${monthNavigationMarkup(selectedMonth, busy || dirty)}<div class="save-line" role="status">${busy ? 'Saving…' : dirty ? 'Changes need to be saved' : supabase ? 'Saved to your account' : 'Saved on this device'}${notice ? ` · ${esc(notice)}` : ''}</div></header>${error ? `<div class="error-banner" role="alert"><p>${esc(error)}</p><div>${dirty ? '<button data-action="retry">Retry save</button>' : ''}<button data-action="reload">Reload saved version</button></div></div>` : ''}<main class="workspace">${scheduleMarkup()}<div class="ledgers">${cardMarkup()}${billsMarkup()}</div></main><footer><div>${t.lowest < 0 ? '<span class="negative">A scheduled balance falls below zero.</span>' : 'Every scheduled balance stays at or above zero.'}</div><details><summary>Month options</summary><div class="footer-actions"><button data-action="defaults" ${busy || dirty || budget.closed ? 'disabled' : ''}>Use bills & paychecks as future defaults</button><button data-action="export" ${busy ? 'disabled' : ''}>Export this month</button><button data-action="close" ${busy || dirty ? 'disabled' : ''}>${budget.closed ? 'Reopen month' : 'Close month'}</button></div><p class="hint">All edits belong to ${esc(monthLabel(selectedMonth))}. Future defaults only populate months you have not opened yet.</p></details></footer></div>`;
   root.querySelector('.workspace').scrollLeft = tileScroll;
+  const header = root.querySelector('.app-shell > header');
+  root.style.setProperty('--budget-header-height', header.offsetHeight + 'px');
+  headerSizeObserver.observe(header);
   scrollToLatestCharges();
 }
 function scrollToLatestCharges() {

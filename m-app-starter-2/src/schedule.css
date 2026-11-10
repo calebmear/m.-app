@@ -97,8 +97,19 @@
   font-weight: 700;
 }
 
+.schedule-ledger .schedule-ending {
+  clip-path: inset(0 round 0 0 var(--tile-inner-radius, 1rem) var(--tile-inner-radius, 1rem));
+}
+
 .schedule-ledger .schedule-ending > * {
-  background: #edf2e9;
+  background: #e1eee4;
+  border-top: 2px solid #658570;
+  border-bottom: 0;
+  font-weight: 700;
+}
+
+.schedule-ledger .schedule-ending > td.numeric {
+  font-size: 1.125em;
 }
 
 .schedule-ledger :is(.schedule-type-bill, .schedule-type-card) { --schedule-entry-color: #b42318; }
@@ -283,7 +294,7 @@
 
 :root:has(dialog:modal),
 body:has(dialog:modal),
-body:has(dialog:modal) :is(.workspace, .schedule-panel, .card-panel, .bills-panel, .charge-list-scroll):not(dialog *) {
+body:has(dialog:modal) :is(.workspace, .tile-scroll, .charge-list-scroll, .card-panel > .statement):not(dialog *) {
   overflow: hidden;
 }
 
@@ -305,6 +316,7 @@ body:has(dialog:modal) :is(.workspace, .schedule-panel, .card-panel, .bills-pane
 @media (max-width: 759px) {
   .charge-dialog.card-month-activity {
     --activity-visible-rows: 15;
+    max-height: calc(min(100dvh, var(--budget-viewport-height, 100dvh)) - 1rem - 2 * max(env(safe-area-inset-top, 0px), env(safe-area-inset-bottom, 0px)));
     padding: 0.75rem;
   }
 }
@@ -1261,12 +1273,15 @@ display: none;
     display: flex;
     flex-direction: column;
     box-sizing: border-box;
-    block-size: 100dvh;
+    block-size: min(100dvh, var(--budget-viewport-height, 100dvh));
     min-block-size: 0;
+    padding-block-end: calc(0.75rem + env(safe-area-inset-bottom, 0px));
   }
 
   .app-shell > .workspace {
     --tile-gutter: 0.5rem;
+    --tile-radius: 2.5rem;
+    --tile-inner-radius: calc(var(--tile-radius) - 1rem);
     display: flex;
     flex-flow: row nowrap;
     align-items: flex-start;
@@ -1293,23 +1308,51 @@ display: none;
   .workspace > .schedule-panel,
   .workspace > .ledgers > :is(.card-panel, .bills-panel) {
     box-sizing: border-box;
-    border-radius: 1.75rem;
+    border-radius: var(--tile-radius);
     flex: 0 0 100%;
     min-width: 0;
     max-block-size: 100%;
     margin: 0;
-    overflow-y: auto;
-    overscroll-behavior-y: contain;
+    overflow: hidden;
     scroll-snap-align: start;
     scroll-snap-stop: always;
   }
 
+  .workspace :is(.schedule-panel, .bills-panel),
+  .workspace :is(#edit-schedule, #edit-bills),
   .workspace .card-panel {
     display: flex;
     flex-direction: column;
   }
 
-  .card-panel > :not(.card-tab-panel),
+  .workspace :is(#edit-schedule, #edit-bills) {
+    min-height: 0;
+  }
+
+  .workspace :is(#edit-schedule, #edit-bills) > :not(.tile-scroll) {
+    flex-shrink: 0;
+  }
+
+  .workspace .tile-scroll,
+  .workspace .card-panel > .statement {
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+  }
+
+  .workspace .tile-scroll :is(.schedule-ledger thead th, .checking-items h3),
+  .workspace .card-panel > .statement > summary {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: var(--paper, #fff);
+  }
+
+  .workspace .card-panel > .charge-add-button {
+    border-radius: var(--tile-inner-radius);
+  }
+
+  .card-panel > :not(.card-tab-panel, .statement),
   .card-tab-panel > :is(.card-cycle, .card-totals),
   .card-tab-panel .charge-list-actions {
     flex-shrink: 0;
@@ -1325,5 +1368,6 @@ display: none;
   .card-tab-panel .charge-list-scroll {
     max-height: calc(var(--charge-header-height) + 6 * var(--charge-row-height) + 1px);
     min-height: 0;
+    overscroll-behavior-y: contain;
   }
 }

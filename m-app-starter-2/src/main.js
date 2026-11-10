@@ -7,6 +7,18 @@ import { connectMonthNavigation, monthNavigationMarkup } from './month-navigatio
 
 
 const root = document.getElementById('app');
+const visualViewport = window.visualViewport;
+if (visualViewport) {
+  const updateViewportHeight = () => {
+    if (visualViewport.scale === 1 && visualViewport.height > 0) {
+      root.style.setProperty('--budget-viewport-height', `${visualViewport.height}px`);
+    } else {
+      root.style.removeProperty('--budget-viewport-height');
+    }
+  };
+  visualViewport.addEventListener('resize', updateViewportHeight);
+  updateViewportHeight();
+}
 const headerSizeObserver = new ResizeObserver(([{ target }]) => {
   root.style.setProperty('--budget-header-height', target.offsetHeight + 'px');
 });
@@ -191,7 +203,7 @@ function scheduleMarkup() {
     const checkpoint = row.kind === 'balance' && row.day !== lastDay && sectionRows.length > 0;
     const expanded = scheduleSectionOverrides.get(sectionId) ?? (today >= sectionStart && today <= row.day);
     const description = isRollover
-      ? '<span>Remaining Balance</span><span class="schedule-rollover-caption">Month-end rollover</span>'
+      ? 'BOA Rollover'
       : `<span class="schedule-description" title="${esc(fullLabel)}">${esc(label)}</span>`;
     const rowMarkup = `<tr class="${rowClass} schedule-type-${rowType}${checkpoint ? ' schedule-checkpoint' : ''}">
       <td class="schedule-date">${date}</td>
@@ -246,6 +258,7 @@ function scheduleMarkup() {
       </div>`}
     </div>
     <div role="alert" class="schedule-edit-controls schedule-editor-error"></div>
+    <div class="tile-scroll" role="region" aria-label="Schedule entries" tabindex="0">
     <table class="schedule schedule-ledger" aria-label="Monthly schedule">
       <thead>
         <tr><th scope="col">Date</th><th scope="col">Description</th><th scope="col" class="numeric">Amount</th></tr>
@@ -257,6 +270,7 @@ function scheduleMarkup() {
       <p class="hint savings-amount-hint" id="edit-savings-amount-hint">+ from savings · − to savings</p>
       ${savingsEditors}
     </section>` : ''}
+    </div>
     </form>
     ${billDialogs.join('')}
     ${scheduleItemDialogMarkup(lastDay)}
@@ -476,11 +490,13 @@ function billsMarkup() {
         <div><h2>Checking bills</h2><p class="hint">${bills.filter(bill => bill.paid).length} of ${bills.length} paid · ${money(subtotal)} total · ${money(totals(budget).remainingBills)} still to clear</p></div>
         ${canEdit ? panelEditButton('edit-bills', 'Edit checking bills', 'bill-edit-button') : ''}
       </div>
+      <div class="tile-scroll" role="region" aria-label="Checking entries" tabindex="0">
       ${rows ? `<ul class="bill-list">${rows}</ul>` : '<p class="hint">No bills for this month.</p>'}
       ${checkingRows ? `<section class="checking-items" aria-label="Misc checking">
         <h3>MISC</h3>
         <ul class="bill-list">${checkingRows}</ul>
       </section>` : ''}
+      </div>
       <div role="alert" class="schedule-editor-error"></div>
       ${canEdit ? `<div class="bill-edit-actions">
         <button type="button" data-action="cancel-bill-edits" ${disabled()}>Cancel</button>
@@ -525,15 +541,15 @@ function render() {
   headerSizeObserver.disconnect();
   if (supabase && !activeUser) return renderAuth();
   if (!budget) { root.innerHTML = `<main class="auth"><div class="wordmark">m.</div><p>${loading ? 'Opening your month…' : esc(error || 'Could not open your budget.')}</p>${!loading ? '<button data-action="reload">Try again</button>' : ''}</main>`; return; }
-  const tileSelector = '.workspace :is(.schedule-panel, .card-panel, .bills-panel)';
+  const tileScrollSelector = '.workspace .tile-scroll';
   const tileScroll = root.querySelector('.workspace')?.scrollLeft ?? 0;
-  const tileScrollTops = Array.from(root.querySelectorAll(tileSelector), tile => tile.scrollTop);
+  const tileScrollTops = Array.from(root.querySelectorAll(tileScrollSelector), list => list.scrollTop);
   root.innerHTML = `<div class="app-shell"><header><div class="topline"><div class="brand">m.</div><div class="account">${supabase ? `<button data-action="sign-out" ${busy || dirty ? 'disabled' : ''}>Sign out</button>` : '<span>Stored on this device</span>'}</div></div>${monthNavigationMarkup(selectedMonth, busy || dirty)}<div class="save-line" role="status">${busy ? 'Saving…' : dirty ? 'Changes need to be saved' : supabase ? 'Saved to your account' : 'Saved on this device'}${notice ? ` · ${esc(notice)}` : ''}</div></header>${error ? `<div class="error-banner" role="alert"><p>${esc(error)}</p><div>${dirty ? '<button data-action="retry">Retry save</button>' : ''}<button data-action="reload">Reload saved version</button></div></div>` : ''}<main class="workspace">${scheduleMarkup()}<div class="ledgers">${cardMarkup()}${billsMarkup()}</div></main></div>`;
   const header = root.querySelector('.app-shell > header');
   root.style.setProperty('--budget-header-height', header.offsetHeight + 'px');
   headerSizeObserver.observe(header);
   root.querySelector('.workspace').scrollLeft = tileScroll;
-  root.querySelectorAll(tileSelector).forEach((tile, index) => { tile.scrollTop = tileScrollTops[index] ?? 0; });
+  root.querySelectorAll(tileScrollSelector).forEach((list, index) => { list.scrollTop = tileScrollTops[index] ?? 0; });
   scrollToLatestCharges();
 }
 function scrollToLatestCharges() {

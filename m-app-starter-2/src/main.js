@@ -18,16 +18,21 @@ let repository = null, activeUser = null, busy = false, dirty = false, error = '
 const disabled = () => busy || budget?.closed ? 'disabled' : '';
 const negative = value => value < 0 ? 'negative' : '';
 const amount = value => (value / 100).toFixed(2);
-function optionList(selected) {
+function panelEditButton(action, label, stateClass) {
+  return `<button type="button" class="panel-edit-button ${stateClass}" data-action="${action}" aria-label="${label}" title="${label}" ${disabled()}>
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="m14.5 5.5 4 4M4 20l4.5-1 11-11a2.8 2.8 0 0 0-4-4l-11 11L4 20Z"/>
+    </svg>
+  </button>`;
+}
+function optionList(selected, compact = false) {
   const options = [['', 'Uncategorized'], ...Object.entries(CC_CATEGORY_CODES)];
   if (selected && !CATEGORIES.includes(selected)) options.push(['', selected]);
   return options.map(([code, category]) => {
-    const label = code ? code + ' · ' + category : category;
+    const label = code || compact ? (code || '—') + ' · ' + category : category;
     return `<option value="${esc(category)}" ${selected === category ? 'selected' : ''}>${esc(label)}</option>`;
   }).join('');
 }
-const cardOptions = selected => CARDS.map(card => `<option value="${card.id}" ${card.id === selected ? 'selected' : ''}>${card.name}</option>`).join('');
-
 function rememberVendors(charges) {
   const storageKey = 'm-app:vendors:' + (activeUser?.id ?? 'local');
   let stored = [];
@@ -47,9 +52,6 @@ function rememberVendors(charges) {
   catch { /* Keep suggestions in memory. */ }
 }
 
-function amountField(value, label, kind, rowId = '', extra = '') {
-  return `<input class="amount" type="text" inputmode="decimal" value="${amount(value)}" aria-label="${esc(label)}" data-kind="${kind}" data-id="${esc(rowId)}" ${extra} ${disabled()}>`;
-}
 function renderAuth() {
   root.innerHTML = `<main class="auth"><div class="wordmark">m.</div><h1>Your month, reconciled.</h1><p>Sign in to open your paycheck schedule, bills, and card activity.</p>${error ? `<p role="alert" class="error">${esc(error)}</p>` : ''}<form id="sign-in"><label>Email<input name="email" type="email" autocomplete="email" required></label><label>Password<input name="password" type="password" autocomplete="current-password" required></label><button class="primary" ${busy ? 'disabled' : ''}>${busy ? 'Signing in…' : 'Sign in'}</button></form></main>`;
 }
@@ -59,13 +61,12 @@ function scheduleMarkup() {
   const schedule = compactSchedule(budget);
   const hasBothPayTypes = ['C pay', 'A pay'].every(name => budget.paychecks.some(pay => pay.name === name));
   const rows = schedule.map((row, index) => {
-    const received = row.kind === 'pay' && row.pay.received ? ' · Received' : '';
+    const label = row.kind === 'opening' ? 'Checking Start' : row.label;
     const balanceClass = row.kind === 'opening' || row.kind === 'balance' ? 'schedule-balance' : '';
     const rowClass = index === schedule.length - 1 ? 'schedule-ending' : balanceClass;
     const rowType = row.expenseType ?? row.kind;
     const amountClass = row.kind === 'savings' ? '' : negative(row.amountCents);
     let date = `${monthNumber}/${row.day}`;
-    let status = '';
     let amountName = '';
     if (row.kind === 'opening') amountName = 'opening';
     if (row.kind === 'etsy') amountName = 'etsy-' + row.day;
@@ -75,26 +76,40 @@ function scheduleMarkup() {
       amountName = 'amount-' + paycheckIndex;
       date = `<span class="schedule-view-value">${date}</span>
         <span class="schedule-edit-controls schedule-date-input">${monthNumber}/<input name="day-${paycheckIndex}" aria-label="${name} day of month" type="number" min="1" max="${lastDay}" value="${row.day}" required></span>`;
-      status = `<label class="schedule-edit-controls schedule-received"><input name="received-${paycheckIndex}" type="checkbox" ${row.pay.received ? 'checked' : ''}> Received</label>`;
     }
     let displayedAmount = row.amountCents < 0 ? `(${money(-row.amountCents)})` : money(row.amountCents);
     if (amountName) {
-      const label = row.kind === 'etsy' ? `${date} ${row.label}` : row.label;
+      const amountLabel = row.kind === 'etsy' ? `${date} ${label}` : label;
       displayedAmount = `<span class="schedule-view-value">${displayedAmount}</span>
-        <input class="schedule-edit-controls schedule-amount-input" name="${amountName}" aria-label="${esc(label)} amount in dollars" inputmode="decimal" value="${amount(row.amountCents)}" ${row.kind === 'etsy' ? '' : 'required'}>`;
+        <input class="schedule-edit-controls schedule-amount-input" name="${amountName}" aria-label="${esc(amountLabel)} amount in dollars" inputmode="decimal" value="${amount(row.amountCents)}" ${row.kind === 'etsy' ? '' : 'required'}>`;
     }
     return `<tr class="${rowClass} schedule-type-${rowType}">
       <td class="schedule-date">${date}</td>
-      <th scope="row"><span class="schedule-description" title="${esc(row.label + received)}">${esc(row.label)}<span class="schedule-view-value">${received}</span></span>${status}</th>
+      <th scope="row"><span class="schedule-description" title="${esc(label)}">${esc(label)}</span></th>
       <td class="numeric ${amountClass}">${displayedAmount}</td>
     </tr>`;
+  }).join('');
+  const lastDate = `${selectedMonth}-${lastDay}`;
+  const savingsEditors = (budget.savingsTransfers ?? []).map((transfer, index) => {
+    const date = `${selectedMonth}-${String(transfer.day).padStart(2, '0')}`;
+    return `<div class="schedule-savings-transfer" data-savings-editor>
+      <div class="schedule-savings-heading">
+        <strong>${transfer.amountCents < 0 ? 'To savings' : 'From savings'}</strong>
+        <button type="button" data-action="toggle-savings-removal">Remove</button>
+        <input type="checkbox" name="remove-savings-${index}" hidden>
+      </div>
+      <fieldset class="schedule-savings-fields" aria-label="Savings transfer details">
+        <label>Date<input name="savings-date-${index}" type="date" min="${selectedMonth}-01" max="${lastDate}" value="${date}" required></label>
+        <label>Amount ($)<input name="savings-amount-${index}" inputmode="decimal" value="${amount(Math.abs(transfer.amountCents))}" required></label>
+      </fieldset>
+    </div>`;
   }).join('');
 
   return `<section class="panel schedule-panel">
     <form id="edit-schedule">
     <div class="panel-heading">
       <h2>Monthly schedule</h2>
-      ${budget.closed ? '<span class="pill">Closed</span>' : `<button class="schedule-view-value" type="button" data-action="edit-schedule" ${disabled()}>Edit schedule</button>
+      ${budget.closed ? '<span class="pill">Closed</span>' : `${panelEditButton('edit-schedule', 'Edit monthly schedule', 'schedule-view-value')}
       <div class="schedule-edit-controls schedule-editor-actions">
         ${hasBothPayTypes ? '' : '<button type="button" data-action="load-paycheck-template">Use C/A template</button>'}
         <button type="button" data-action="cancel-schedule">Cancel</button>
@@ -110,6 +125,10 @@ function scheduleMarkup() {
         ${rows}
       </tbody>
     </table>
+    ${savingsEditors ? `<section class="schedule-edit-controls schedule-savings-editor" aria-label="Edit savings transfers">
+      <h3>Savings transfers</h3>
+      ${savingsEditors}
+    </section>` : ''}
     </form>
     ${budget.closed ? '' : `<details class="add-details">
       <summary>+ Savings</summary>
@@ -139,32 +158,34 @@ function cardChargeTable(charges, scope) {
     const vendor = esc(charge.vendor);
     const code = Object.entries(CC_CATEGORY_CODES).find(([, category]) => category === charge.category)?.[0] ?? '—';
     const date = displayDate(charge.postedDate);
-    const [year, month, day] = (charge.postedDate ?? '').split('-');
     const edit = budget.closed ? [] : [
-      `<select name="category-${key}" data-category-code aria-label="Category code for ${vendor}">${optionList(charge.category)}</select>
-        <label class="checkbox-label"><input type="checkbox" name="important-${key}" ${charge.important === true ? 'checked' : ''}>Important</label>`,
-      `<input name="vendor-${key}" value="${vendor}" list="card-vendor-history" maxlength="160" aria-label="Vendor for ${vendor}"><select name="card-${key}" aria-label="Card for ${vendor}"><option value="">Unassigned</option>${cardOptions(charge.card)}</select><button class="text-button" type="button" data-action="stage-charge-removal" aria-label="Remove ${vendor}">Remove</button>`,
-      `<input name="posted-${key}" value="${year ? `${month}/${day}/${year}` : ''}" placeholder="MM/DD" maxlength="10" aria-label="Date for ${vendor}">`,
+      `<div class="charge-code-edit">
+        <select name="category-${key}" data-category-code aria-label="Category code for ${vendor}">${optionList(charge.category, true)}</select>
+        <label class="charge-important-toggle" title="Important"><input type="checkbox" name="important-${key}" aria-label="Mark ${vendor} important" ${charge.important === true ? 'checked' : ''}><span aria-hidden="true">★</span></label>
+      </div>`,
+      `<input name="vendor-${key}" value="${vendor}" list="card-vendor-history" maxlength="160" aria-label="Vendor for ${vendor}">`,
+      `<input name="posted-${key}" value="${esc(date)}" placeholder="Pending" maxlength="10" aria-label="Date for ${vendor}">`,
       `<input name="amount-${key}" value="${amount(charge.amountCents)}" inputmode="decimal" aria-label="Amount for ${vendor}">`,
     ];
     const cell = (value, index) => `<span class="charge-list-view">${value}</span>${edit[index] ? `<div class="charge-list-edit">${edit[index]}</div>` : ''}`;
     return `<tr data-charge-id="${key}" data-charge-code="${code}"${charge.important === true ? ' class="charge-important"' : ''}>
       <td><span class="charge-list-view" title="${esc(charge.category)}">${code}</span>${edit[0] ? `<div class="charge-list-edit">${edit[0]}</div>` : ''}</td>
-      <td>${cell(vendor, 1)}</td>
+      <td title="${vendor}">${cell(vendor, 1)}</td>
       <td class="numeric ${negative(charge.amountCents)}">${cell(esc(money(charge.amountCents)), 3)}</td>
       <td>${cell(esc(date || 'Pending'), 2)}</td>
+      ${budget.closed ? '' : `<td class="charge-list-edit charge-remove-cell"><button class="charge-remove-button" type="button" data-action="stage-charge-removal" aria-label="Remove ${vendor}">−</button></td>`}
     </tr>`;
   }).join('');
   return `<form class="charge-list" data-charge-scope="${scope}">
     ${budget.closed ? '' : `<div class="charge-list-actions">
-      <button class="charge-list-view" type="button" data-action="edit-charges" ${disabled()}>Edit charges</button>
+      ${scope ? panelEditButton('edit-charges', 'Edit card charges', 'charge-list-view') : `<button class="charge-list-view" type="button" data-action="edit-charges" ${disabled()}>Edit charges</button>`}
       <div class="charge-list-edit">
         <button class="primary" type="submit" ${disabled()}>Save changes</button>
         <button type="button" data-action="cancel-charge-edits" ${disabled()}>Cancel</button>
       </div>
     </div>`}
     <div class="charge-list-scroll" role="region" aria-label="Saved charges" tabindex="0"><table class="charge-list-table">
-      <thead><tr><th scope="col">Code</th><th scope="col">Vendor</th><th scope="col" class="numeric">Amount</th><th scope="col">Date</th></tr></thead>
+      <thead><tr><th scope="col">Code</th><th scope="col">Vendor</th><th scope="col" class="numeric">Amt</th><th scope="col">Date</th>${budget.closed ? '' : '<th scope="col" class="charge-list-edit charge-remove-cell" aria-label="Remove"></th>'}</tr></thead>
       <tbody>${rows}</tbody>
     </table></div>
     <div role="alert" class="schedule-editor-error"></div>
@@ -183,15 +204,6 @@ function cardMarkup() {
       <button type="button" data-action="queue-charge" ${disabled()}>Add to batch</button>
     </div>
   </div>`;
-  const draftGroup = (editor = '') => `<fieldset class="charge-batch-group">
-    <legend>Charges by date</legend>
-    <label class="charge-batch-date">Date for this group
-      <input name="posted" placeholder="MM/DD or Pending" maxlength="10" autocomplete="off" ${disabled()}>
-    </label>
-    <div class="charge-draft-list"></div>
-    <p class="hint charge-group-total">0 charges · ${money(0)}</p>
-    ${editor}
-  </fieldset>`;
   const tabs = cardTabs.map(card => {
     const selected = card.id === activeCard;
     return `<button type="button" role="tab" id="card-tab-${card.id}"
@@ -206,22 +218,27 @@ function cardMarkup() {
     const payment = payments.find(item => item.id === card.id);
     return `<div class="card-tab-panel" id="card-panel-${card.id}" role="tabpanel"
       aria-labelledby="card-tab-${card.id}" data-card-panel="${card.id}" ${card.id === activeCard ? '' : 'hidden'}>
-      <p class="hint">${card.name} statement cycle · ${displayDate(cycle.from)} to ${displayDate(cycle.until)}</p>
+      <div class="card-cycle">
+        <p class="hint">${card.name} statement cycle · ${displayDate(cycle.from)} to ${displayDate(cycle.until)}</p>
+        <p class="hint">${money(payment.amountCents)} due <time datetime="${selectedMonth}-${String(card.dueDay).padStart(2, '0')}">${shortMonth(selectedMonth)} ${card.dueDay}</time></p>
+      </div>
       <div class="card-totals">
         <div>Posted<strong>${money(posted)}</strong></div>
         <div>Pending<strong>${money(pending)}</strong></div>
-        <div>${card.name} due <time datetime="${selectedMonth}-${String(card.dueDay).padStart(2, '0')}">${shortMonth(selectedMonth)} ${card.dueDay}</time><strong>${money(payment.amountCents)}</strong></div>
+        <div>Total<strong>${money(posted + pending)}</strong></div>
       </div>
       ${cardChargeTable(charges, card.id)}
-      ${budget.closed ? '' : `<button type="button" class="primary charge-add-button" data-action="open-charge-dialog" data-card="${card.id}" aria-haspopup="dialog" ${disabled()}>+ Add charges</button>
-      <dialog id="charge-dialog-${card.id}" class="charge-dialog" aria-labelledby="charge-dialog-title-${card.id}">
+      ${budget.closed ? '' : `<dialog id="charge-dialog-${card.id}" class="charge-dialog" aria-labelledby="charge-dialog-title-${card.id}">
         <h3 id="charge-dialog-title-${card.id}">Add ${card.name} charges</h3>
         <form id="add-charges-${card.id}" class="charge-batch-form">
-          <p class="hint">Each group shares one date. Type Pending or leave the group date blank for pending charges.</p>
-          <div class="charge-batch-groups">${draftGroup(draftEditor)}</div>
+          <label class="charge-batch-date">Date posted
+            <input name="posted" placeholder="MM/DD or Pending" maxlength="10" autocomplete="off" ${disabled()}>
+          </label>
+          <p class="hint">This date applies to all charges in this batch. Leave it blank for pending charges.</p>
+          ${draftEditor}
+          <div class="charge-draft-list"></div>
           <p role="status"><strong class="charge-batch-total">Batch total · 0 charges · ${money(0)}</strong></p>
           <div class="charge-batch-actions">
-            <button type="button" data-action="add-charge-group" ${disabled()}>+ Add another date</button>
             <button type="button" data-action="close-charge-dialog">Close</button>
             <button type="submit" class="primary" ${disabled()}>Save all charges</button>
           </div>
@@ -231,14 +248,12 @@ function cardMarkup() {
     </div>`;
   }).join('');
   return `<section class="panel card-panel">
-    <div class="panel-heading"><h2>Credit card activity</h2><span class="pill">${esc(shortMonth(selectedMonth))}</span></div>
+    <div class="panel-heading card-panel-heading"><h2>CREDIT CARD ACTIVITY</h2></div>
     <div class="card-tabs" role="tablist" aria-label="Credit cards">${tabs}</div>
     ${panels}
-    <template id="charge-draft-group">${draftGroup()}</template>
     <datalist id="card-vendor-history">${knownVendors.map(name => `<option value="${esc(name)}"></option>`).join('')}</datalist>
-    <p class="hint">Entries belong to ${esc(monthLabel(selectedMonth))}, even if posted in another month. MM/DD uses ${selectedMonth.slice(0, 4)}. Card totals include pending entries. Use a negative amount for a refund.</p>
     ${unassigned.length ? `<details class="statement"><summary>Unassigned charges (${unassigned.length})</summary>${cardChargeTable(unassigned, '')}</details>` : ''}
-    <details class="statement"><summary>Unassigned statement payment · ${money(budget.statement.amountCents)}</summary><div class="statement-fields"><label>Balance ($)${amountField(budget.statement.amountCents, 'Previous statement balance', 'statement-amount')}</label><label>Pay on ${esc(shortMonth(selectedMonth))}<input type="number" min="1" max="${daysInMonth(selectedMonth)}" value="${budget.statement.paymentDay}" data-kind="statement-day" ${disabled()}></label><label>Due ${esc(shortMonth(selectedMonth))}<input type="number" min="1" max="${daysInMonth(selectedMonth)}" value="${budget.statement.dueDay}" data-kind="statement-due" ${disabled()}></label></div><button data-action="statement-paid" type="button" ${disabled()} ${!budget.statement.amountCents ? 'disabled' : ''}>${budget.statement.paid ? 'Undo paid' : 'Mark payment cleared'}</button><p class="hint">Use this for a separate payment. If a payment is already included in an Amex or CapOne total, remove its amount here to avoid counting it twice.</p></details>
+    ${budget.closed ? '' : `<button type="button" class="primary charge-add-button" data-action="open-charge-dialog" aria-haspopup="dialog" ${disabled()}>+ Add charges</button>`}
   </section>`;
 }
 function billsMarkup() {
@@ -251,15 +266,15 @@ function billsMarkup() {
     return `<li data-bill-id="${key}">
       <div class="bill-summary">
         <span class="bill-summary-date">${bill.endOfMonth ? '<abbr title="End of month">EOM</abbr>' : debitDate(bill)}</span>
-        <span class="bill-summary-name">${name}</span>
+        <span class="bill-summary-name" title="${name}">${name}</span>
         <span class="bill-summary-amount">${money(bill.amountCents)}</span>
-        <label class="bill-paid-field"><input type="checkbox" id="bill-paid-${key}" data-kind="bill-paid" data-id="${key}" aria-label="Mark ${name} paid" ${bill.paid ? 'checked' : ''} ${disabled()}>Paid</label>
+        <label class="bill-paid-field"><input type="checkbox" id="bill-paid-${key}" data-kind="bill-paid" data-id="${key}" aria-label="Mark ${name} paid" ${bill.paid ? 'checked' : ''} ${disabled()}></label>
       </div>
       ${budget.closed ? '' : `<div class="bill-fields">
         <input type="number" name="day-${key}" min="1" max="${lastDay}" value="${bill.day}" aria-label="Debit day for ${name}" ${disabled()}>
         <input name="name-${key}" value="${name}" maxlength="100" aria-label="Vendor for ${name}" ${disabled()}>
         <input name="amount-${key}" inputmode="decimal" value="${amount(bill.amountCents)}" aria-label="Amount for ${name}" ${disabled()}>
-        <label class="bill-paid-field"><input type="checkbox" name="paid-${key}" aria-label="Mark ${name} paid" ${bill.paid ? 'checked' : ''} ${disabled()}>Paid</label>
+        <label class="bill-paid-field"><input type="checkbox" name="paid-${key}" aria-label="Mark ${name} paid" ${bill.paid ? 'checked' : ''} ${disabled()}></label>
         <button type="button" class="bill-remove-button" data-action="stage-bill-removal" aria-label="Remove ${name}" ${disabled()}>−</button>
       </div>`}
     </li>`;
@@ -268,7 +283,7 @@ function billsMarkup() {
     <form id="edit-bills" novalidate>
       <div class="panel-heading">
         <div><h2>Checking bills</h2><p class="hint">${bills.filter(bill => bill.paid).length} of ${bills.length} paid · ${money(totals(budget).remainingBills)} still to clear</p></div>
-        ${!budget.closed && rows ? `<button type="button" class="bill-edit-button" data-action="edit-bills" ${disabled()}>Edit bills</button>` : ''}
+        ${!budget.closed && rows ? panelEditButton('edit-bills', 'Edit checking bills', 'bill-edit-button') : ''}
       </div>
       ${rows ? `<ul class="bill-list">${rows}</ul>` : '<p class="hint">Add your recurring bills below.</p>'}
       <div role="alert" class="schedule-editor-error"></div>
@@ -351,32 +366,32 @@ function rowById(rows, rowId) {
   if (!row) throw new Error('This entry is no longer available. Reload the month.');
   return row;
 }
+function savingsTransferDay(date) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date.slice(0, 7) !== selectedMonth) {
+    throw new Error('Choose a savings date in the selected month.');
+  }
+  return validateDay(date.slice(8), selectedMonth);
+}
+function setSavingsRemoval(editor, removed) {
+  editor.querySelector('input[type="checkbox"]').checked = removed;
+  editor.querySelector('fieldset').disabled = removed;
+  editor.querySelector('button').textContent = removed ? 'Undo remove' : 'Remove';
+}
 function parseCardDate(value) {
   return parsePostedDate(value, selectedMonth.slice(0, 4));
 }
 const queuedCharges = new WeakMap();
 function updateChargeTotals(form) {
-  const summary = (count, cents) => `${count} ${count === 1 ? 'charge' : 'charges'} · ${money(cents)}`;
-  let batchCount = 0;
-  let batchCents = 0;
-  for (const group of form.querySelectorAll('.charge-batch-group')) {
-    const rows = group.querySelectorAll('.charge-draft-item');
-    let groupCents = 0;
-    for (const row of rows) groupCents += queuedCharges.get(row).amountCents;
-    group.querySelector('.charge-group-total').textContent = summary(rows.length, groupCents);
-    batchCount += rows.length;
-    batchCents += groupCents;
-  }
-  form.querySelector('.charge-batch-total').textContent = 'Batch total · ' + summary(batchCount, batchCents);
+  const rows = Array.from(form.querySelectorAll('.charge-draft-item'));
+  const cents = rows.reduce((sum, row) => sum + queuedCharges.get(row).amountCents, 0);
+  const count = rows.length;
+  form.querySelector('.charge-batch-total').textContent = `Batch total · ${count} ${count === 1 ? 'charge' : 'charges'} · ${money(cents)}`;
 }
 function setChargeEditor(form, row = null) {
   const editor = form.querySelector('.charge-draft-editor');
   form.querySelector('.charge-draft-item[aria-pressed="true"]')?.setAttribute('aria-pressed', 'false');
   const charge = queuedCharges.get(row);
-  if (row) {
-    row.setAttribute('aria-pressed', 'true');
-    row.closest('.charge-batch-group').append(editor);
-  }
+  if (row) row.setAttribute('aria-pressed', 'true');
   form.elements.vendor.value = charge?.vendor ?? '';
   form.elements.amount.value = charge ? amount(charge.amountCents) : '';
   form.elements.category.value = charge?.category ?? 'Uncategorized';
@@ -403,7 +418,7 @@ function queueCharge(form, required = false) {
       row.className = 'charge-draft-item';
       row.dataset.action = 'edit-charge-draft';
       row.setAttribute('aria-pressed', 'false');
-      form.querySelector('.charge-draft-editor').parentElement.querySelector('.charge-draft-list').append(row);
+      form.querySelector('.charge-draft-list').append(row);
     }
     const code = Object.entries(CC_CATEGORY_CODES).find(([, name]) => name === category)?.[0];
     row.textContent = [code, vendor, money(amountCents)].filter(Boolean).join(' · ');
@@ -487,24 +502,13 @@ connectMonthNavigation(root, async month => {
   return Boolean(budget) && selectedMonth === month;
 });
 root.addEventListener('change', async event => {
-  const input = event.target, kind = input.dataset.kind;
-  if (!kind) return;
+  const input = event.target;
+  if (input.dataset.kind !== 'bill-paid' || busy || budget?.closed) return;
   try {
-    if (busy || budget?.closed) return;
-    if (kind === 'bill-paid') {
-      const billId = input.dataset.id;
-      const paid = input.checked;
-      await commit(next => { rowById(next.bills, billId).paid = paid; });
-      document.getElementById('bill-paid-' + billId)?.focus?.({ preventScroll: true });
-      return;
-    }
-    const cents = kind === 'statement-amount' ? toCents(input.value) : null;
-    const day = ['statement-day', 'statement-due'].includes(kind) ? validateDay(input.value, selectedMonth) : null;
-    await commit(next => {
-      if (kind === 'statement-amount') next.statement.amountCents = cents;
-      if (kind === 'statement-day') next.statement.paymentDay = day;
-      if (kind === 'statement-due') next.statement.dueDay = day;
-    });
+    const billId = input.dataset.id;
+    const paid = input.checked;
+    await commit(next => { rowById(next.bills, billId).paid = paid; });
+    document.getElementById('bill-paid-' + billId)?.focus?.({ preventScroll: true });
   } catch (cause) { input.setCustomValidity?.(cause.message); input.reportValidity?.(); }
 });
 root.addEventListener('submit', async event => {
@@ -557,15 +561,12 @@ root.addEventListener('submit', async event => {
       try {
         const vendor = fields.get('vendor-' + key).trim();
         if (!vendor) throw new Error('Enter a vendor.');
-        const postedDate = parseCardDate(fields.get('posted-' + key));
+        const dateText = fields.get('posted-' + key).trim();
+        const postedDate = dateText === displayDate(previous.postedDate) ? previous.postedDate ?? null : parseCardDate(dateText);
         const amountCents = toCents(fields.get('amount-' + key), true);
         const category = fields.get('category-' + key);
-        const card = fields.get('card-' + key);
         const important = fields.get('important-' + key) === 'on';
-        const charge = { ...previous, vendor, postedDate, amountCents, category, important };
-        if (card) charge.card = card;
-        else delete charge.card;
-        updates.set(key, charge);
+        updates.set(key, { ...previous, vendor, postedDate, amountCents, category, important });
       } catch (cause) {
         message.textContent = `${previous.vendor}: ${cause.message}`;
         return;
@@ -580,23 +581,21 @@ root.addEventListener('submit', async event => {
   if (form.id === 'add-charges-' + activeCard) {
     const message = form.querySelector('.schedule-editor-error');
     if (!queueCharge(form)) return;
-    const charges = [];
-    for (const [groupIndex, group] of form.querySelectorAll('.charge-batch-group').entries()) {
-      const rows = group.querySelectorAll('.charge-draft-item');
-      if (!rows.length) continue;
-      const dateInput = group.querySelector('[name="posted"]').value.trim();
-      try {
-        const postedDate = parseCardDate(dateInput.toLowerCase() === 'pending' ? '' : dateInput);
-        for (const row of rows) charges.push({ ...queuedCharges.get(row), id: id(), postedDate, card: activeCard });
-      } catch (cause) {
-        message.textContent = `Group ${groupIndex + 1}: ${cause.message}`;
-        return;
-      }
-    }
-    if (!charges.length) {
+    const rows = Array.from(form.querySelectorAll('.charge-draft-item'));
+    if (!rows.length) {
       message.textContent = 'Enter at least one charge.';
       return;
     }
+    const dateInput = form.elements.posted.value.trim();
+    let postedDate;
+    try {
+      postedDate = parseCardDate(dateInput.toLowerCase() === 'pending' ? '' : dateInput);
+    } catch (cause) {
+      message.textContent = cause.message;
+      form.elements.posted.focus();
+      return;
+    }
+    const charges = rows.map(row => ({ ...queuedCharges.get(row), id: id(), postedDate, card: activeCard }));
     await commit(next => { next.charges.push(...charges); });
     return;
   }
@@ -604,11 +603,7 @@ root.addEventListener('submit', async event => {
     const message = form.querySelector('.schedule-editor-error');
     try {
       message.textContent = '';
-      const date = fields.get('date');
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date.slice(0, 7) !== selectedMonth) {
-        throw new Error('Choose a date in the selected month.');
-      }
-      const day = validateDay(date.slice(8), selectedMonth);
+      const day = savingsTransferDay(fields.get('date'));
       const amountCents = toCents(fields.get('amount'));
       if (!amountCents) throw new Error('Enter an amount greater than zero.');
       const direction = fields.get('direction');
@@ -634,12 +629,19 @@ root.addEventListener('submit', async event => {
         ...pay,
         day: validateDay(fields.get('day-' + index), selectedMonth),
         amountCents: toCents(fields.get('amount-' + index)),
-        received: fields.has('received-' + index),
       }));
+      const savingsTransfers = (budget.savingsTransfers ?? []).flatMap((transfer, index) => {
+        if (fields.has('remove-savings-' + index)) return [];
+        const day = savingsTransferDay(fields.get('savings-date-' + index));
+        const cents = toCents(fields.get('savings-amount-' + index));
+        if (!cents) throw new Error('Enter a savings amount greater than zero.');
+        return [{ ...transfer, day, amountCents: transfer.amountCents < 0 ? -cents : cents }];
+      });
       await commit(next => {
         next.openingCents = openingCents;
         next.etsyDeposits = etsyDeposits;
         next.paychecks = paychecks;
+        if (next.savingsTransfers) next.savingsTransfers = savingsTransfers;
       });
     } catch (cause) {
       form.querySelector('.schedule-editor-error').textContent = cause.message;
@@ -664,19 +666,11 @@ root.addEventListener('click', async event => {
   const button = event.target.closest('[data-action]'); if (!button || button.disabled) return;
   const action = button.dataset.action;
   if (action === 'open-charge-dialog') {
-    root.querySelector('#charge-dialog-' + button.dataset.card).showModal();
+    root.querySelector('#charge-dialog-' + activeCard).showModal();
     return;
   }
   if (action === 'close-charge-dialog') {
     button.closest('dialog').close();
-    return;
-  }
-  if (action === 'add-charge-group') {
-    if (!queueCharge(button.form)) return;
-    const group = root.querySelector('#charge-draft-group').content.firstElementChild.cloneNode(true);
-    group.append(button.form.querySelector('.charge-draft-editor'));
-    button.form.querySelector('.charge-batch-groups').append(group);
-    group.querySelector('[name="posted"]').focus();
     return;
   }
   if (action === 'queue-charge') {
@@ -745,9 +739,15 @@ root.addEventListener('click', async event => {
     button.form.querySelector('input').focus();
     return;
   }
+  if (action === 'toggle-savings-removal') {
+    const editor = button.closest('[data-savings-editor]');
+    setSavingsRemoval(editor, !editor.querySelector('input[type="checkbox"]').checked);
+    return;
+  }
   if (action === 'cancel-schedule') {
     const form = button.form;
     form.reset();
+    for (const editor of form.querySelectorAll('[data-savings-editor]')) setSavingsRemoval(editor, false);
     form.querySelector('.schedule-editor-error').textContent = '';
     form.classList.remove('is-editing');
     form.querySelector('[data-action="edit-schedule"]').focus();
@@ -761,7 +761,6 @@ root.addEventListener('click', async event => {
   if (action === 'retry') return persist();
   if (action === 'reload') { if (dirty && !confirm('Discard unsaved changes and reload the saved month?')) return; return repository ? loadMonth() : start(null); }
   if (action === 'sign-out') { const { error: cause } = await supabase.auth.signOut(); if (cause) { error = cause.message; render(); } else await start(null); return; }
-  if (action === 'statement-paid') return commit(next => { next.statement.paid = !next.statement.paid; });
   if (action === 'close') return commit(next => { next.closed = !next.closed; }, true);
   if (action === 'defaults') {
     busy = true; error = ''; render();

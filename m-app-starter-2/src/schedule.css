@@ -12,7 +12,7 @@
 }
 
 .schedule-ledger thead th {
-  text-align: left;
+  text-align: center;
   font-weight: 600;
 }
 
@@ -22,7 +22,7 @@
   overflow-wrap: anywhere;
 }
 
-.schedule-ledger tr > .numeric {
+.schedule-ledger td.numeric {
   text-align: right;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
@@ -93,13 +93,6 @@
   color: inherit;
 }
 
-.schedule-received {
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-  margin-top: 0.3rem;
-}
-
 .schedule-editor-error {
   color: #a52727;
 }
@@ -139,8 +132,63 @@
   display: none;
 }
 
+.panel:is(.card-panel, .bills-panel, .schedule-panel) {
+  position: relative;
+}
+
+:is(.card-panel, .bills-panel, .schedule-panel) .panel-heading {
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.5rem;
+  text-align: center;
+}
+
+:is(.card-panel, .bills-panel, .schedule-panel) .panel-heading h2 {
+  padding-inline: 2rem;
+  text-transform: uppercase;
+}
+
+.panel-edit-button {
+  position: absolute;
+  inset-block-start: 0.5rem;
+  inset-inline-end: 0.5rem;
+  display: inline-grid;
+  place-items: center;
+  width: 2.125rem;
+  height: 2.125rem;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+}
+
+.card-tab-panel .charge-list:not(.is-editing) .charge-list-actions {
+  margin-bottom: 0;
+}
+
+.schedule-panel .panel-heading .schedule-editor-actions {
+  justify-content: center;
+}
+
+.card-cycle {
+  margin-bottom: 0.65rem;
+  text-align: center;
+}
+
+.card-panel .card-totals {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.35rem;
+  text-align: center;
+}
+
+.card-panel .card-totals strong {
+  font-size: clamp(0.9rem, 4vw, 1.25rem);
+  overflow-wrap: anywhere;
+}
+
 .charge-add-button {
   width: 100%;
+  margin-top: 0.65rem;
 }
 
 .charge-dialog {
@@ -162,16 +210,9 @@
   margin: 0 0 0.65rem;
 }
 
-.charge-batch-group {
-  min-inline-size: 0;
-  margin: 0 0 0.75rem;
-  padding: 0.5rem;
-  border: 1px solid #e4e8e0;
-  border-radius: 0.5rem;
-}
-
 .charge-batch-date {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 0.25rem;
   width: min(100%, 12rem);
   margin-bottom: 0.5rem;
@@ -180,6 +221,10 @@
 .charge-draft-list {
   display: grid;
   gap: 0.25rem;
+}
+
+.charge-draft-list:not(:empty) {
+  margin-top: 0.65rem;
 }
 
 .charge-draft-item {
@@ -252,7 +297,9 @@
 }
 
 .charge-list-scroll {
-  max-height: min(22rem, 50vh);
+  --charge-row-height: 2.75rem;
+  --charge-header-height: 2rem;
+  max-height: calc(var(--charge-header-height) + 8 * var(--charge-row-height) + 1px);
   overflow: auto;
 }
 
@@ -340,6 +387,56 @@
   margin-top: 0.65rem;
 }
 
+@media (max-width: 759px) {
+.bill-list > li {
+  padding-block: 0.55rem;
+}
+
+.bill-summary {
+  grid-template-columns: 2.5rem minmax(0, 1fr) max-content 2.75rem;
+  gap: 0.35rem;
+}
+
+.bill-summary-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.bill-summary-amount {
+  text-align: right;
+}
+
+.bill-fields {
+  grid-template-columns: 3.25rem minmax(0, 1fr) 2.75rem 2.75rem;
+  grid-template-areas:
+    "day name name name"
+    "amount amount paid remove";
+  gap: 0.5rem;
+}
+
+.bill-fields > input[name^="day-"] { grid-area: day; }
+.bill-fields > input[name^="name-"] { grid-area: name; }
+.bill-fields > input[name^="amount-"] { grid-area: amount; }
+.bill-fields .bill-remove-button { grid-area: remove; }
+.bill-fields .bill-paid-field { grid-area: paid; }
+
+.bill-fields .bill-paid-field,
+.bill-summary .bill-paid-field {
+  justify-content: center;
+  min-height: 44px;
+  cursor: pointer;
+}
+
+#add-bill {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+#add-bill > label:first-child {
+  grid-column: 1 / -1;
+}
+}
+
 .charge-list-table {
   width: 100%;
   border-collapse: collapse;
@@ -358,11 +455,32 @@
   white-space: nowrap;
 }
 
-.charge-list-table td:nth-child(2) {
-  overflow-wrap: anywhere;
+.charge-list-table tbody tr {
+  height: var(--charge-row-height);
 }
 
-.charge-list-table .numeric {
+.charge-list-table td:nth-child(2) > :is(.charge-list-view, .charge-list-edit) {
+  contain: inline-size;
+}
+
+.charge-list-table :where(td:nth-child(2)) > .charge-list-view {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.charge-list-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  height: var(--charge-header-height);
+  background: var(--paper);
+  box-shadow: 0 1px 0 var(--line);
+  text-align: center;
+}
+
+.charge-list-table td.numeric {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
@@ -395,28 +513,85 @@
   font-weight: 700;
 }
 
-.charge-list.is-editing .charge-list-table {
-  min-width: 29rem;
+.charge-list.is-editing .charge-list-table :is(th, td) {
+  padding-inline: 0.125rem;
 }
 
-.charge-list-table .charge-list-edit {
-  display: grid;
-  gap: 0.25rem;
+.charge-list.is-editing .charge-list-table tbody td {
+  padding-block: 0.2rem;
 }
 
 .charge-list-table .charge-list-edit :is(input:not([type="checkbox"]), select) {
-  box-sizing: border-box;
   width: 100%;
   min-width: 0;
+  min-height: 2.25rem;
+  padding: 0.2rem 0.125rem;
 }
 
 .charge-list-table .charge-list-edit input[name^="posted-"] {
-  width: 7rem;
+  width: clamp(4.5rem, 19vw, 6.75rem);
 }
 
 .charge-list-table .charge-list-edit input[name^="amount-"] {
-  width: 6rem;
+  width: clamp(4rem, 17vw, 6rem);
   text-align: right;
+}
+
+.charge-list-table .charge-code-edit {
+display: flex;
+align-items: center;
+}
+
+.charge-list-table .charge-list-edit .charge-code-edit select {
+appearance: none;
+width: 1.4rem;
+text-overflow: clip;
+}
+
+.charge-important-toggle {
+position: relative;
+place-items: center;
+width: 1rem;
+min-height: 2.25rem;
+cursor: pointer;
+}
+
+.charge-important-toggle input {
+position: absolute;
+inset: 0;
+width: 100%;
+height: 100%;
+margin: 0;
+opacity: 0;
+cursor: pointer;
+}
+
+.charge-important-toggle span {
+opacity: 0.45;
+}
+
+.charge-important-toggle input:checked + span,
+.charge-important-toggle input:focus-visible + span {
+opacity: 1;
+}
+
+.charge-important-toggle input:focus-visible + span {
+outline: 2px solid var(--accent);
+}
+
+.charge-list-table .charge-remove-button {
+width: 1.75rem;
+height: 2.25rem;
+min-width: 0;
+min-height: 0;
+padding: 0;
+font-size: 1rem;
+}
+
+.charge-list.is-editing .charge-list-actions .charge-list-edit {
+display: flex;
+flex-wrap: wrap;
+gap: 0.4rem;
 }
 
 /* Match the app's list typography and override the legacy italic cells. */
@@ -453,6 +628,50 @@ contain: inline-size;
 overflow: hidden;
 white-space: nowrap;
 text-overflow: ellipsis;
+}
+
+.schedule-savings-editor {
+margin-top: 1rem;
+}
+
+.schedule-savings-editor h3 {
+margin: 0 0 0.5rem;
+font-size: 1rem;
+}
+
+.schedule-savings-transfer {
+padding-block: 0.5rem;
+border-bottom: 1px solid var(--line);
+}
+
+.schedule-savings-heading {
+display: flex;
+align-items: center;
+justify-content: space-between;
+gap: 0.5rem;
+margin-bottom: 0.5rem;
+}
+
+.schedule-savings-fields {
+display: grid;
+grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+gap: 0.5rem;
+min-inline-size: 0;
+border: 0;
+margin: 0;
+padding: 0;
+}
+
+.schedule-savings-fields > label {
+grid-template-columns: minmax(0, 1fr);
+}
+
+.schedule-savings-fields input {
+width: 100%;
+}
+
+.schedule-savings-fields:disabled {
+opacity: 0.55;
 }
 
 /* Display the existing wordmark without its suffix. */

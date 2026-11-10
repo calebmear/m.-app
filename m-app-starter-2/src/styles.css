@@ -41,6 +41,22 @@
 .brand span {
   color: var(--muted);
 }
+.topline {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 0.5rem;
+}
+.topline .brand {
+  grid-column: 2;
+  justify-self: center;
+}
+.topline .account {
+  grid-column: 3;
+  justify-self: end;
+  justify-content: flex-end;
+  min-width: 0;
+  text-align: right;
+}
 .month-heading h1 {
   font-weight: 600;
 }
@@ -198,8 +214,16 @@ button.primary {
 }
 
 .month-navigation-caption {
-  margin-top: 8px;
-  color: var(--muted);
-  font-size: 13px;
-  text-align: center;
+  display: none;
+}
+
+.app-shell header > .save-line {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  min-height: 0;
+  margin: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }

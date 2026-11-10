@@ -1,6 +1,6 @@
 import './styles.css';
 import './schedule.css';
-import { CATEGORIES, CC_CATEGORY_CODES, CARDS, cardStatementCycle, cardStatementPayments, copy, id, money, currentMonth, validMonth, daysInMonth, monthLabel, shortMonth, toCents, parsePostedDate, displayDate, validateDay, emptyPreferences, createMonth, hasLegacyPaycheckDefaults, preferencesFromMonth, sortedCharges, totals, compactSchedule, etsyDepositDays } from './budget.js';
+import { CATEGORIES, CC_CATEGORY_CODES, CARDS, cardStatementCycle, cardStatementPayments, copy, id, money, currentMonth, validMonth, daysInMonth, monthLabel, shortMonth, toCents, parsePostedDate, displayDate, validateDay, emptyPreferences, createMonth, hasLegacyPaycheckDefaults, sortedCharges, totals, compactSchedule, etsyDepositDays } from './budget.js';
 import { createLocalRepository, createCloudRepository } from './repository.js';
 import { supabase } from './supabase.js';
 import { connectMonthNavigation, monthNavigationMarkup } from './month-navigation.js';
@@ -18,7 +18,7 @@ const cardTabs = ['capone', 'amex'].map(id => CARDS.find(card => card.id === id)
 let activeCard = cardTabs[0].id;
 let rowTouchStart = null;
 let knownVendors = [];
-let budget = null, revision = 0, preferences = emptyPreferences(), preferencesRevision = 0;
+let budget = null, revision = 0, preferences = emptyPreferences();
 let repository = null, activeUser = null, busy = false, dirty = false, error = '', notice = '', loading = true, loadToken = 0;
 const disabled = () => busy || budget?.closed ? 'disabled' : '';
 const negative = value => value < 0 ? 'negative' : '';
@@ -117,14 +117,6 @@ function scheduleMarkup() {
   let sectionStart = 1;
   let sectionRows = [];
   const rowGroups = [];
-  const scheduledBills = schedule.reduce((total, row) =>
-    row.expenseType === 'bill' ? total - row.amountCents : total, 0);
-  const checkingBills = budget.bills.reduce((total, bill) => total + bill.amountCents, 0);
-  const checkingItems = budget.checkingItems ?? [];
-  const miscTotal = checkingItems.reduce((total, item) => total + item.amountCents, 0);
-  const checkingTotal = checkingBills - miscTotal;
-  const billsMatch = scheduledBills === checkingTotal;
-  const checkingLabel = checkingItems.length ? 'Checking bills + MISC' : 'Checking bills';
   const billDialogs = [];
   let firstBillDay = 1;
   const hasBothPayTypes = ['C pay', 'A pay'].every(name => budget.paychecks.some(pay => pay.name === name));
@@ -243,7 +235,7 @@ function scheduleMarkup() {
     <form id="edit-schedule">
     <div class="panel-heading">
       <h2>Monthly schedule</h2>
-      ${budget.closed ? '<span class="pill">Closed</span>' : `${panelEditButton('edit-schedule', 'Edit monthly schedule', 'schedule-view-value')}
+      ${budget.closed ? `<button type="button" data-action="reopen-month" ${busy || dirty ? 'disabled' : ''}>Reopen month</button>` : `${panelEditButton('edit-schedule', 'Edit monthly schedule', 'schedule-view-value')}
       <div class="schedule-edit-controls schedule-editor-actions">
         ${hasBothPayTypes ? '' : '<button type="button" data-action="load-paycheck-template">Use C/A template</button>'}
         <button type="button" data-action="cancel-schedule">Cancel</button>
@@ -257,11 +249,6 @@ function scheduleMarkup() {
       </thead>
       ${rowGroups.join('')}
     </table>
-    <p class="schedule-bill-check${billsMatch ? '' : ' is-mismatch'}">
-      ${billsMatch
-        ? `<span aria-hidden="true">✓</span> ${checkingLabel} match · ${money(checkingTotal)}`
-        : `${checkingLabel} differ · ${money(scheduledBills)} scheduled / ${money(checkingTotal)} in Checking bills`}
-    </p>
     ${savingsEditors ? `<section class="schedule-edit-controls schedule-savings-editor" aria-label="Edit savings">
       <h3>Savings</h3>
       <p class="hint savings-amount-hint" id="edit-savings-amount-hint">+ from savings · − to savings</p>
@@ -270,14 +257,6 @@ function scheduleMarkup() {
     </form>
     ${billDialogs.join('')}
     ${scheduleItemDialogMarkup(lastDay)}
-    <details class="schedule-month-options"><summary>Month options</summary>
-      <div class="footer-actions">
-        <button data-action="defaults" ${busy || dirty || budget.closed ? 'disabled' : ''}>Use bills & paychecks as future defaults</button>
-        <button data-action="export" ${busy ? 'disabled' : ''}>Export this month</button>
-        <button data-action="close" ${busy || dirty ? 'disabled' : ''}>${budget.closed ? 'Reopen month' : 'Close month'}</button>
-      </div>
-      <p class="hint">Future defaults apply to months you have not opened yet.</p>
-    </details>
   </section>`;
 }
 function cardChargeTable(charges, scope, fullActivity = false) {
@@ -341,8 +320,12 @@ function cardMarkup() {
   const payments = cardStatementPayments(budget);
   const unassigned = budget.charges.filter(charge => !charge.card);
   const draftEditor = `<div class="charge-draft-editor">
-    <label class="charge-draft-vendor">Vendor<input name="vendor" list="card-vendor-history" placeholder="Vendor name" autocomplete="off" maxlength="160" ${disabled()}></label>
-    <label>Amount ($)<input name="amount" inputmode="decimal" placeholder="0.00" ${disabled()}></label>
+    <div class="charge-draft-primary">
+      <label>Vendor<input name="vendor" list="card-vendor-history" autocomplete="off" maxlength="160" ${disabled()}></label>
+      <label>Amount ($)<input name="amount" inputmode="decimal" placeholder="0.00" ${disabled()}></label>
+    </div>
+    <label>Date posted <input name="posted" placeholder="MM/DD" maxlength="10" autocomplete="off" ${disabled()}></label>
+    <button type="button" class="charge-batch-pending" data-action="toggle-charge-pending" aria-pressed="false" ${disabled()}>Pending</button>
     <label>Code
       <span class="charge-draft-code">
         <select name="category" ${disabled()}>${optionList()}</select>
@@ -389,10 +372,6 @@ function cardMarkup() {
           <button type="button" data-action="close-charge-dialog" aria-label="Close add charges">×</button>
         </div>
         <form id="add-charges-${card.id}" class="charge-batch-form">
-          <div class="charge-batch-date">
-            <label>Date posted <input name="posted" placeholder="MM/DD" maxlength="10" autocomplete="off" ${disabled()}></label>
-            <button type="button" data-action="toggle-charge-pending" aria-pressed="false" ${disabled()}>Pending</button>
-          </div>
           ${draftEditor}
           <div class="charge-draft-list" role="group" aria-label="Charges in this batch"></div>
           <div class="charge-batch-actions">
@@ -421,7 +400,7 @@ function cardMarkup() {
         </div>
         <button type="button" data-action="close-charge-dialog" aria-label="Close full card activity">×</button>
       </div>
-      <div class="card-month-activity-list"></div>
+      <div class="card-month-activity-list" role="region" aria-label="Full credit card transactions" tabindex="0"></div>
     </dialog>
     <div id="charge-vendor-details" class="charge-vendor-popover" popover="auto"></div>
     <dialog id="charge-delete-dialog" class="charge-dialog" aria-labelledby="charge-delete-title" aria-describedby="charge-delete-details">
@@ -543,13 +522,15 @@ function render() {
   headerSizeObserver.disconnect();
   if (supabase && !activeUser) return renderAuth();
   if (!budget) { root.innerHTML = `<main class="auth"><div class="wordmark">m.</div><p>${loading ? 'Opening your month…' : esc(error || 'Could not open your budget.')}</p>${!loading ? '<button data-action="reload">Try again</button>' : ''}</main>`; return; }
-  const t = totals(budget);
+  const tileSelector = '.workspace :is(.schedule-panel, .card-panel, .bills-panel)';
   const tileScroll = root.querySelector('.workspace')?.scrollLeft ?? 0;
-  root.innerHTML = `<div class="app-shell"><header><div class="topline"><div class="brand">m.</div><div class="account">${supabase ? `<button data-action="sign-out" ${busy || dirty ? 'disabled' : ''}>Sign out</button>` : '<span>Stored on this device</span>'}</div></div>${monthNavigationMarkup(selectedMonth, busy || dirty)}<div class="save-line" role="status">${busy ? 'Saving…' : dirty ? 'Changes need to be saved' : supabase ? 'Saved to your account' : 'Saved on this device'}${notice ? ` · ${esc(notice)}` : ''}</div></header>${error ? `<div class="error-banner" role="alert"><p>${esc(error)}</p><div>${dirty ? '<button data-action="retry">Retry save</button>' : ''}<button data-action="reload">Reload saved version</button></div></div>` : ''}<main class="workspace">${scheduleMarkup()}<div class="ledgers">${cardMarkup()}${billsMarkup()}</div></main><footer><div>${t.lowest < 0 ? '<span class="negative">A scheduled balance falls below zero.</span>' : 'Every scheduled balance stays at or above zero.'}</div></footer></div>`;
-  root.querySelector('.workspace').scrollLeft = tileScroll;
+  const tileScrollTops = Array.from(root.querySelectorAll(tileSelector), tile => tile.scrollTop);
+  root.innerHTML = `<div class="app-shell"><header><div class="topline"><div class="brand">m.</div><div class="account">${supabase ? `<button data-action="sign-out" ${busy || dirty ? 'disabled' : ''}>Sign out</button>` : '<span>Stored on this device</span>'}</div></div>${monthNavigationMarkup(selectedMonth, busy || dirty)}<div class="save-line" role="status">${busy ? 'Saving…' : dirty ? 'Changes need to be saved' : supabase ? 'Saved to your account' : 'Saved on this device'}${notice ? ` · ${esc(notice)}` : ''}</div></header>${error ? `<div class="error-banner" role="alert"><p>${esc(error)}</p><div>${dirty ? '<button data-action="retry">Retry save</button>' : ''}<button data-action="reload">Reload saved version</button></div></div>` : ''}<main class="workspace">${scheduleMarkup()}<div class="ledgers">${cardMarkup()}${billsMarkup()}</div></main></div>`;
   const header = root.querySelector('.app-shell > header');
   root.style.setProperty('--budget-header-height', header.offsetHeight + 'px');
   headerSizeObserver.observe(header);
+  root.querySelector('.workspace').scrollLeft = tileScroll;
+  root.querySelectorAll(tileSelector).forEach((tile, index) => { tile.scrollTop = tileScrollTops[index] ?? 0; });
   scrollToLatestCharges();
 }
 function scrollToLatestCharges() {
@@ -582,7 +563,7 @@ async function start(session) {
   render();
   try {
     const record = await repository.loadPreferences();
-    preferences = record?.document ?? emptyPreferences(); preferencesRevision = record?.revision ?? 0;
+    preferences = record?.document ?? emptyPreferences();
     await loadMonth();
   } catch (cause) { error = cause.message; loading = false; render(); }
 }
@@ -646,7 +627,10 @@ function readChargeDraft(form) {
   const amountCents = toCents(amountInput, true);
   if (!amountCents) throw new Error('Enter a nonzero amount.');
   if (!Object.values(CC_CATEGORY_CODES).includes(category)) throw new Error('Choose a category code.');
-  return { vendor, amountCents, category, important };
+  const dateInput = form.elements.posted;
+  const postedDate = dateInput.disabled ? null : parseCardDate(dateInput.value);
+  if (!dateInput.disabled && !postedDate) throw new Error('Enter a date or select Pending.');
+  return { vendor, amountCents, category, important, postedDate };
 }
 function updateChargeTotals(form) {
   const category = form.elements.category.value;
@@ -675,7 +659,13 @@ function setChargeEditor(form, row = null) {
   const editor = form.querySelector('.charge-draft-editor');
   form.querySelector('.charge-draft-item[aria-pressed="true"]')?.setAttribute('aria-pressed', 'false');
   const charge = queuedCharges.get(row);
-  if (row) row.setAttribute('aria-pressed', 'true');
+  if (row) {
+    row.setAttribute('aria-pressed', 'true');
+    const pending = !charge.postedDate;
+    form.elements.posted.disabled = pending;
+    form.elements.posted.value = pending ? '' : `${charge.postedDate.slice(5).replace('-', '/')}/${charge.postedDate.slice(0, 4)}`;
+    editor.querySelector('[data-action="toggle-charge-pending"]').setAttribute('aria-pressed', String(pending));
+  }
   form.elements.vendor.value = charge?.vendor ?? '';
   form.elements.amount.value = charge ? amount(charge.amountCents) : '';
   form.elements.category.value = charge?.category ?? '';
@@ -698,10 +688,11 @@ function queueCharge(form, required = false) {
       row.className = 'charge-draft-item';
       row.dataset.action = 'edit-charge-draft';
       row.setAttribute('aria-pressed', 'false');
-      form.querySelector('.charge-draft-list').append(row);
+      form.querySelector('.charge-draft-list').prepend(row);
     }
     const code = Object.entries(CC_CATEGORY_CODES).find(([, name]) => name === draft.category)?.[0] ?? '—';
-    row.replaceChildren(...[code, draft.vendor + (draft.important ? ' ★' : ''), money(draft.amountCents)].map(value => {
+    const date = displayDate(draft.postedDate) || 'Pending';
+    row.replaceChildren(...[code, draft.vendor + (draft.important ? ' ★' : ''), money(draft.amountCents), date].map(value => {
       const cell = document.createElement('span');
       cell.textContent = value;
       return cell;
@@ -907,25 +898,14 @@ root.addEventListener('submit', async event => {
   }
   if (form.id === 'add-charges-' + activeCard) {
     const message = form.querySelector('.schedule-editor-error');
-    const dateInput = form.elements.posted;
-    let postedDate = null;
-    try {
-      if (!dateInput.disabled) {
-        if (!dateInput.value.trim()) throw new Error('Enter a date or select Pending.');
-        postedDate = parseCardDate(dateInput.value);
-      }
-    } catch (cause) {
-      message.textContent = cause.message;
-      dateInput.focus();
-      return;
-    }
     if (!queueCharge(form)) return;
     const rows = Array.from(form.querySelectorAll('.charge-draft-item'));
     if (!rows.length) {
       message.textContent = 'Enter at least one charge.';
       return;
     }
-    const charges = rows.map(row => ({ ...queuedCharges.get(row), id: id(), postedDate, card: activeCard }));
+    // Drafts display newest first. Save them in the order they were added.
+    const charges = rows.reverse().map(row => ({ ...queuedCharges.get(row), id: id(), card: activeCard }));
     await commit(next => { next.charges.push(...charges); });
     return;
   }
@@ -1071,7 +1051,7 @@ root.addEventListener('click', async event => {
     const list = dialog.querySelector('.card-month-activity-list');
     list.innerHTML = cardChargeTable(budget.charges.filter(charge => charge.card === card.id), card.id, true);
     dialog.showModal();
-    dialog.scrollTop = 0;
+    list.scrollTop = 0;
     return;
   }
   if (action === 'show-charge-vendor') {
@@ -1116,12 +1096,13 @@ root.addEventListener('click', async event => {
     button.setAttribute('aria-pressed', String(pending));
     button.form.elements.posted.disabled = pending;
     button.form.querySelector('.schedule-editor-error').textContent = '';
+    updateChargeTotals(button.form);
     return;
   }
   if (action === 'edit-charge-draft') {
     if (button.getAttribute('aria-pressed') === 'true' || !queueCharge(button.form)) return;
     setChargeEditor(button.form, button);
-    button.form.elements.vendor.focus();
+    button.focus({ preventScroll: true });
     return;
   }
   if (action === 'remove-charge-draft') {
@@ -1132,9 +1113,17 @@ root.addEventListener('click', async event => {
     return;
   }
   if (action === 'select-card') return selectCard(button.dataset.card);
-  if (action === 'edit-bills') {
-    button.form.classList.add('is-editing');
-    button.form.querySelector('.bill-fields :is(select, input)')?.focus();
+  if (action === 'edit-bills' || action === 'edit-charges' || action === 'edit-schedule') {
+    const form = button.form;
+    form.classList.add('is-editing');
+    const chargeList = form.querySelector('.charge-list-scroll');
+    if (chargeList) {
+      chargeList.focus({ preventScroll: true });
+      chargeList.scrollTop = chargeList.scrollHeight;
+    } else {
+      form.tabIndex = -1;
+      form.focus({ preventScroll: true });
+    }
     return;
   }
   if (action === 'cancel-bill-edits') {
@@ -1161,22 +1150,12 @@ root.addEventListener('click', async event => {
     });
     return;
   }
-  if (action === 'edit-charges') {
-    button.form.classList.add('is-editing');
-    button.form.querySelector('tbody select')?.focus();
-    return;
-  }
   if (action === 'cancel-charge-edits') {
     const form = button.form;
     form.reset();
     form.querySelector('.schedule-editor-error').textContent = '';
     form.classList.remove('is-editing');
     form.querySelector('[data-action="edit-charges"]').focus();
-    return;
-  }
-  if (action === 'edit-schedule') {
-    button.form.classList.add('is-editing');
-    button.form.querySelector('input').focus();
     return;
   }
   if (action === 'toggle-savings-removal') {
@@ -1201,17 +1180,7 @@ root.addEventListener('click', async event => {
   if (action === 'retry') return persist();
   if (action === 'reload') { if (dirty && !confirm('Discard unsaved changes and reload the saved month?')) return; return repository ? loadMonth() : start(null); }
   if (action === 'sign-out') { const { error: cause } = await supabase.auth.signOut(); if (cause) { error = cause.message; render(); } else await start(null); return; }
-  if (action === 'close') return commit(next => { next.closed = !next.closed; }, true);
-  if (action === 'defaults') {
-    busy = true; error = ''; render();
-    try { const record = await repository.savePreferences(preferencesFromMonth(budget), preferencesRevision); preferences = record.document; preferencesRevision = record.revision; notice = 'Future defaults updated'; }
-    catch (cause) { error = cause.message; }
-    finally { busy = false; render(); }
-  }
-  if (action === 'export') {
-    const link = document.createElement('a'), url = URL.createObjectURL(new Blob([JSON.stringify(budget, null, 2)], { type: 'application/json' }));
-    link.href = url; link.download = `m-app-${selectedMonth}.json`; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }
+  if (action === 'reopen-month') return commit(next => { next.closed = false; }, true);
 });
 window.addEventListener('beforeunload', event => { if (dirty || busy) { event.preventDefault(); event.returnValue = ''; } });
 if (supabase) {

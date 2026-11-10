@@ -96,6 +96,12 @@ function scheduleMarkup() {
   const monthNumber = Number(selectedMonth.slice(5));
   const lastDay = daysInMonth(selectedMonth);
   const schedule = compactSchedule(budget);
+  const scheduledBills = schedule.reduce((total, row) =>
+    row.expenseType === 'bill' ? total - row.amountCents : total, 0);
+  const checkingBills = budget.bills.reduce((total, bill) => total + bill.amountCents, 0);
+  const billsMatch = scheduledBills === checkingBills;
+  const billDialogs = [];
+  let firstBillDay = 1;
   const hasBothPayTypes = ['C pay', 'A pay'].every(name => budget.paychecks.some(pay => pay.name === name));
   const rows = schedule.map((row, index) => {
     const label = row.kind === 'opening' ? 'Checking Start' : row.label;
@@ -114,11 +120,37 @@ function scheduleMarkup() {
       date = `<span class="schedule-view-value">${date}</span>
         <span class="schedule-edit-controls schedule-date-input">${monthNumber}/<input name="day-${paycheckIndex}" aria-label="${name} day of month" type="number" min="1" max="${lastDay}" value="${row.day}" required></span>`;
     }
-    let displayedAmount = row.amountCents < 0 ? `(${money(-row.amountCents)})` : money(row.amountCents);
+    const isNegative = row.amountCents < 0;
+    const currency = money(Math.abs(row.amountCents));
+    const formattedAmount = isNegative ? `(${currency})` : currency;
+    const alignedAmount = `${isNegative ? '(' : ''}${currency.slice(0, -2)}<span class="schedule-amount-cents">${currency.slice(-2)}</span><span class="schedule-amount-suffix">${isNegative ? ')' : ''}</span>`;
+    let displayedAmount = alignedAmount;
     if (amountName) {
       const amountLabel = row.kind === 'etsy' ? `${date} ${label}` : label;
       displayedAmount = `<span class="schedule-view-value">${displayedAmount}</span>
         <input class="schedule-edit-controls schedule-amount-input" name="${amountName}" aria-label="${esc(amountLabel)} amount in dollars" inputmode="decimal" value="${amount(row.amountCents)}" ${row.kind === 'etsy' ? '' : 'required'}>`;
+    }
+    if (row.expenseType === 'bill' && row.label === 'Bills' && row.day >= firstBillDay) {
+      // Older versions of budget.js only provide the subtotal and its cutoff day.
+      const bills = row.bills ?? budget.bills.filter(bill =>
+        !bill.endOfMonth && bill.day >= firstBillDay && bill.day <= row.day
+      ).sort((a, b) => a.day - b.day);
+      firstBillDay = row.day + 1;
+      const dialogId = 'schedule-bills-' + index;
+      displayedAmount = `<button type="button" class="schedule-bill-trigger" data-action="open-bill-breakdown"
+        aria-haspopup="dialog" aria-controls="${dialogId}" aria-label="View bills through ${date}, subtotal ${formattedAmount}">${alignedAmount}</button>`;
+      billDialogs.push(`<dialog id="${dialogId}" class="schedule-item-dialog" aria-labelledby="${dialogId}-title">
+        <div class="schedule-item-heading">
+          <h3 id="${dialogId}-title">Bills through ${date}</h3>
+          <button type="button" data-action="close-item-dialog" aria-label="Close bill details">×</button>
+        </div>
+        ${bills.length ? `<ul class="schedule-bill-breakdown">${bills.map(bill => `<li>
+          <span>${monthNumber}/${bill.day}</span>
+          <span>${esc(bill.name)}</span>
+          <span class="numeric">${money(bill.amountCents)}</span>
+        </li>`).join('')}</ul>` : '<p class="hint">No bills in this group.</p>'}
+        <p class="numeric"><strong>Total ${money(Math.abs(row.amountCents))}</strong></p>
+      </dialog>`);
     }
     return `<tr class="${rowClass} schedule-type-${rowType}">
       <td class="schedule-date">${date}</td>
@@ -162,11 +194,17 @@ function scheduleMarkup() {
         ${rows}
       </tbody>
     </table>
+    <p class="schedule-bill-check${billsMatch ? '' : ' is-mismatch'}">
+      ${billsMatch
+        ? `<span aria-hidden="true">✓</span> Checking bills match · ${money(checkingBills)}`
+        : `Bills differ · ${money(scheduledBills)} scheduled / ${money(checkingBills)} in Checking bills`}
+    </p>
     ${savingsEditors ? `<section class="schedule-edit-controls schedule-savings-editor" aria-label="Edit savings transfers">
       <h3>Savings transfers</h3>
       ${savingsEditors}
     </section>` : ''}
     </form>
+    ${billDialogs.join('')}
     ${scheduleItemDialogMarkup(lastDay)}
   </section>`;
 }
@@ -288,6 +326,7 @@ function billsMarkup() {
     return `<option value="${day}">${day}</option>`;
   }).join('');
   const bills = budget.bills.slice().sort((a, b) => a.day - b.day);
+  const subtotal = bills.reduce((total, bill) => total + bill.amountCents, 0);
   const debitDate = bill => `${Number(selectedMonth.slice(5))}/${bill.day}`;
   const rows = bills.map(bill => {
     const key = esc(bill.id);
@@ -311,7 +350,7 @@ function billsMarkup() {
   return `<section class="panel bills-panel">
     <form id="edit-bills" novalidate>
       <div class="panel-heading">
-        <div><h2>Checking bills</h2><p class="hint">${bills.filter(bill => bill.paid).length} of ${bills.length} paid · ${money(totals(budget).remainingBills)} still to clear</p></div>
+        <div><h2>Checking bills</h2><p class="hint">${bills.filter(bill => bill.paid).length} of ${bills.length} paid · ${money(subtotal)} total · ${money(totals(budget).remainingBills)} still to clear</p></div>
         ${!budget.closed && rows ? panelEditButton('edit-bills', 'Edit checking bills', 'bill-edit-button') : ''}
       </div>
       ${rows ? `<ul class="bill-list">${rows}</ul>` : '<p class="hint">No bills for this month.</p>'}
@@ -344,7 +383,9 @@ function render() {
   if (supabase && !activeUser) return renderAuth();
   if (!budget) { root.innerHTML = `<main class="auth"><div class="wordmark">m.</div><p>${loading ? 'Opening your month…' : esc(error || 'Could not open your budget.')}</p>${!loading ? '<button data-action="reload">Try again</button>' : ''}</main>`; return; }
   const t = totals(budget);
+  const tileScroll = root.querySelector('.workspace')?.scrollLeft ?? 0;
   root.innerHTML = `<div class="app-shell"><header><div class="topline"><div class="brand">m.</div><div class="account">${supabase ? `<button data-action="sign-out" ${busy || dirty ? 'disabled' : ''}>Sign out</button>` : '<span>Stored on this device</span>'}</div></div>${monthNavigationMarkup(selectedMonth, busy || dirty)}<div class="save-line" role="status">${busy ? 'Saving…' : dirty ? 'Changes need to be saved' : supabase ? 'Saved to your account' : 'Saved on this device'}${notice ? ` · ${esc(notice)}` : ''}</div></header>${error ? `<div class="error-banner" role="alert"><p>${esc(error)}</p><div>${dirty ? '<button data-action="retry">Retry save</button>' : ''}<button data-action="reload">Reload saved version</button></div></div>` : ''}<main class="workspace">${scheduleMarkup()}<div class="ledgers">${cardMarkup()}${billsMarkup()}</div></main><footer><div>${t.lowest < 0 ? '<span class="negative">A scheduled balance falls below zero.</span>' : 'Every scheduled balance stays at or above zero.'}</div><details><summary>Month options</summary><div class="footer-actions"><button data-action="defaults" ${busy || dirty || budget.closed ? 'disabled' : ''}>Use bills & paychecks as future defaults</button><button data-action="export" ${busy ? 'disabled' : ''}>Export this month</button><button data-action="close" ${busy || dirty ? 'disabled' : ''}>${budget.closed ? 'Reopen month' : 'Close month'}</button></div><p class="hint">All edits belong to ${esc(monthLabel(selectedMonth))}. Future defaults only populate months you have not opened yet.</p></details></footer></div>`;
+  root.querySelector('.workspace').scrollLeft = tileScroll;
   scrollToLatestCharges();
 }
 function scrollToLatestCharges() {
@@ -492,6 +533,7 @@ function selectCard(cardId, focus = false) {
 }
 root.addEventListener('touchstart', event => {
   cardTouchStart = null;
+  if (window.matchMedia('(max-width: 759px)').matches) return;
   if (event.touches.length !== 1 || !event.target.closest('[data-card-panel], .card-tabs') ||
       event.target.closest('input, select, textarea, label, .charge-dialog')) return;
   const { clientX, clientY } = event.touches[0];
@@ -725,6 +767,10 @@ root.addEventListener('submit', async event => {
 root.addEventListener('click', async event => {
   const button = event.target.closest('[data-action]'); if (!button || button.disabled) return;
   const action = button.dataset.action;
+  if (action === 'open-bill-breakdown') {
+    document.getElementById(button.getAttribute('aria-controls')).showModal();
+    return;
+  }
   if (action === 'open-item-dialog') {
     const dialog = document.getElementById(button.getAttribute('aria-controls'));
     for (const form of dialog.querySelectorAll('form')) {

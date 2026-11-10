@@ -22,10 +22,25 @@
   overflow-wrap: anywhere;
 }
 
-.schedule-ledger td.numeric {
+#edit-schedule .schedule-ledger tbody tr > td.numeric {
   text-align: right;
+  padding-inline-end: 0.5rem;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
+}
+
+.schedule-ledger .schedule-amount-cents,
+.schedule-ledger .schedule-amount-suffix {
+  display: inline-block;
+  text-align: start;
+}
+
+.schedule-ledger .schedule-amount-cents {
+  inline-size: 1.25em;
+}
+
+.schedule-ledger .schedule-amount-suffix {
+  inline-size: 0.4em;
 }
 
 .schedule-ledger tbody tr > .schedule-date {
@@ -43,14 +58,6 @@
 .schedule-ledger tbody > .schedule-balance.schedule-type-balance > * {
   border-block: 2px solid #8b968d;
   font-weight: 700;
-}
-
-.schedule-ledger tbody > .schedule-balance.schedule-type-balance > .numeric > span {
-  display: inline-block;
-  padding-inline: 0.35rem;
-  outline: 1px solid #8b968d;
-  outline-offset: 2px;
-  border-radius: 0.3rem;
 }
 
 .schedule-ledger .schedule-ending > * {
@@ -747,4 +754,79 @@ width: 100%;
 /* Display the existing wordmark without its suffix. */
 .topline .brand > span {
 display: none;
+}
+
+
+.schedule-ledger .schedule-bill-trigger {
+  display: inline;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.schedule-bill-breakdown {
+  list-style: none;
+  margin: 0.75rem 0;
+  padding: 0;
+}
+
+.schedule-bill-breakdown > li {
+  display: grid;
+  grid-template-columns: 2.5rem minmax(0, 1fr) max-content;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid #e4e8e0;
+  overflow-wrap: anywhere;
+}
+
+.schedule-bill-breakdown .numeric {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.schedule-bill-check {
+  margin: 0.45rem 0 0;
+  color: #356046;
+  font-size: 0.8rem;
+  text-align: center;
+}
+
+.schedule-bill-check.is-mismatch {
+  color: #a52830;
+}
+
+@media (max-width: 759px) {
+  .app-shell > .workspace {
+    display: flex;
+    flex-flow: row nowrap;
+    align-items: flex-start;
+    min-width: 0;
+    max-width: 100%;
+    gap: 0.75rem;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    scroll-snap-type: x mandatory;
+  }
+
+  .workspace > .ledgers {
+    display: contents;
+  }
+
+  .workspace > .schedule-panel,
+  .workspace > .ledgers > :is(.card-panel, .bills-panel) {
+    box-sizing: border-box;
+    flex: 0 0 100%;
+    min-width: 0;
+    margin: 0;
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
+  }
 }

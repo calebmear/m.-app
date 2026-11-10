@@ -54,7 +54,10 @@ export function cardStatementPayments(document) {
     const total = document.charges
       .filter(charge => charge.card === card.id)
       .reduce((sum, charge) => sum + charge.amountCents, 0);
-    return { ...card, amountCents: Math.max(0, total) };
+    const paidCents = (document.cardPayments ?? [])
+      .filter(payment => payment.card === card.id)
+      .reduce((sum, payment) => sum + payment.amountCents, 0);
+    return { ...card, paidCents, netCents: total - paidCents, amountCents: Math.max(0, total - paidCents) };
   });
 }
 export function toCents(value, allowNegative = false) {
@@ -164,6 +167,9 @@ export function eventsForMonth(document) {
     })),
     ...document.bills.map(b => ({ day: b.day, amountCents: -b.amountCents, kind: 'bill', priority: 1 })),
     { day: document.statement.paymentDay, amountCents: -document.statement.amountCents, kind: 'statement', priority: 1 },
+    ...(document.cardPayments ?? []).map(payment => ({
+      day: payment.day, amountCents: -payment.amountCents, kind: 'statement', priority: 1,
+    })),
     ...cardStatementPayments(document).filter(card => card.amountCents).map(card => ({
       day: card.dueDay, amountCents: -card.amountCents, kind: 'statement', priority: 1,
     })),
@@ -175,7 +181,7 @@ export function totals(document) {
   const sum = rows => rows.reduce((total, row) => total + row.amountCents, 0);
   const posted = sum(document.charges.filter(c => c.postedDate));
   const pending = sum(document.charges.filter(c => !c.postedDate));
-  const checking = document.openingCents + sum(document.paychecks.filter(p => p.received)) - sum(document.bills.filter(b => b.paid)) - (document.statement.paid ? document.statement.amountCents : 0);
+  const checking = document.openingCents + sum(document.paychecks.filter(p => p.received)) - sum(document.bills.filter(b => b.paid)) - (document.statement.paid ? document.statement.amountCents : 0) - sum(document.cardPayments ?? []);
   let ending = document.openingCents, lowest = ending;
   for (const event of eventsForMonth(document)) { ending += event.amountCents; lowest = Math.min(lowest, ending); }
   return { checking, ending, lowest, posted, pending, reserved: posted + pending, remainingBills: sum(document.bills.filter(b => !b.paid)) };
@@ -190,6 +196,25 @@ export function compactSchedule(document) {
   const lastDay = daysInMonth(document.month);
   const cardEvents = eventsForMonth(document).filter(event => event.kind === 'card');
   const cardPayments = cardStatementPayments(document);
+  const remainingByCard = new Map(cardPayments.map(card => [card.id, card.netCents + card.paidCents]));
+  const recordedPayments = [...(document.cardPayments ?? [])].sort((a, b) => a.day - b.day);
+  const cardRows = [
+    ...cardPayments.filter(card => card.amountCents > 0 || !card.paidCents)
+      .map(card => ({ day: card.dueDay, label: card.name + ' due', amountCents: card.amountCents })),
+    ...recordedPayments.map(payment => {
+      const card = CARDS.find(card => card.id === payment.card);
+      const beforePayment = remainingByCard.get(card.id);
+      const remaining = beforePayment - payment.amountCents;
+      remainingByCard.set(card.id, remaining);
+      let label = card.name + ' Payment';
+      if (remaining > 0) label = card.name + ' (Partial)';
+      else if (beforePayment > 0) label = card.name + ' (Full)';
+      return {
+        day: payment.day, label,
+        amountCents: payment.amountCents, expenseType: 'payment',
+      };
+    }),
+  ].sort((a, b) => a.day - b.day);
   const transfersAndDeposits = [
     ...etsyDepositDays(document).map(day => ({
       day, label: 'Etsy deposit', amountCents: document.etsyDeposits?.[day] ?? 0, kind: 'etsy',
@@ -216,10 +241,8 @@ export function compactSchedule(document) {
     if (reserved) add(end, 'CC activity · reserved', reserved, 'expense', cardDetails);
     const { paymentDay, amountCents } = document.statement;
     if (amountCents && paymentDay >= start && paymentDay <= end) add(paymentDay, 'CC statement', -amountCents, 'expense', cardDetails);
-    for (const card of cardPayments) {
-      if (card.dueDay >= start && card.dueDay <= end) {
-        add(card.dueDay, card.name + ' due', card.amountCents ? -card.amountCents : 0, 'expense', cardDetails);
-      }
+    for (const { day, label, amountCents, expenseType = 'card' } of cardRows.filter(inPeriod)) {
+      add(day, label, amountCents ? -amountCents : 0, 'expense', { expenseType });
     }
   }
 
@@ -250,7 +273,8 @@ export function compactSchedule(document) {
     addExpenses(start, lastDay);
     checkpoint(lastDay);
   }
-  return rows;
+  // Keep same-day entries in their original order, with the balance last.
+  return rows.sort((a, b) => a.day - b.day);
 }
 export function validateDocument(document) {
   if (document?.schemaVersion !== 1 || !validMonth(document.month)) throw new Error('This budget uses an unsupported format.');
@@ -263,8 +287,8 @@ export function validateDocument(document) {
       validateDay(day, document.month);
     }
   }
-  for (const key of ['paychecks', 'bills', 'charges', 'savingsTransfers', 'checkingItems']) {
-    if ((key === 'savingsTransfers' || key === 'checkingItems') && document[key] === undefined) continue;
+  for (const key of ['paychecks', 'bills', 'charges', 'savingsTransfers', 'checkingItems', 'cardPayments']) {
+    if (['savingsTransfers', 'checkingItems', 'cardPayments'].includes(key) && document[key] === undefined) continue;
     if (!Array.isArray(document[key])) throw new Error(`Invalid ${key}.`);
     const seen = new Set();
     for (const row of document[key]) {
@@ -277,6 +301,10 @@ export function validateDocument(document) {
       else if (key === 'checkingItems') {
         validateDay(row.day, document.month);
         if (!row.amountCents || typeof row.name !== 'string' || !row.name.trim()) throw new Error('Invalid checking item.');
+      }
+      else if (key === 'cardPayments') {
+        validateDay(row.day, document.month);
+        if (row.amountCents <= 0 || !CARDS.some(card => card.id === row.card)) throw new Error('Invalid card payment.');
       }
       else if (key !== 'charges') { validateDay(row.day, document.month); if (row.amountCents < 0 || !String(row.name).trim()) throw new Error('Invalid bill or paycheck.'); }
       else {

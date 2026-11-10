@@ -26,6 +26,7 @@ const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&a
 let selectedMonth = currentMonth();
 const scheduleSectionOverrides = new Map();
 let scheduleSectionDateKey = '';
+let scheduleVisibilityObserver = null;
 const cardTabs = ['capone', 'amex'].map(id => CARDS.find(card => card.id === id));
 let activeCard = cardTabs[0].id;
 let rowTouchStart = null;
@@ -35,6 +36,13 @@ let repository = null, activeUser = null, busy = false, dirty = false, error = '
 const disabled = () => busy || budget?.closed ? 'disabled' : '';
 const negative = value => value < 0 ? 'negative' : '';
 const amount = value => (value / 100).toFixed(2);
+function accountMarkup() {
+  if (!supabase) return '<div class="brand">m.</div><div class="account"><span>Stored on this device</span></div>';
+  return `<button type="button" class="brand account-menu-trigger" popovertarget="account-menu" aria-label="Account options" title="Account options">m.</button>
+  <div id="account-menu" popover>
+    <button type="button" data-action="sign-out" ${busy || dirty ? 'disabled' : ''}>Sign out</button>
+  </div>`;
+}
 function panelEditButton(action, label, stateClass) {
   return `<button type="button" class="panel-edit-button ${stateClass}" data-action="${action}" aria-label="${label}" title="${label}" ${disabled()}>
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -143,7 +151,8 @@ function scheduleMarkup() {
     const isRollover = row.kind === 'balance' && row.day === lastDay;
     const rowClass = isRollover ? 'schedule-ending' : balanceClass;
     const rowType = row.expenseType ?? row.kind;
-    const amountClass = row.kind === 'savings' ? '' : negative(row.amountCents);
+    const displayCents = row.displayCents ?? row.amountCents;
+    const amountClass = row.kind === 'savings' ? '' : negative(displayCents);
     let date = `${monthNumber}/${row.day}`;
     let amountName = '';
     if (row.kind === 'opening') amountName = 'opening';
@@ -155,8 +164,8 @@ function scheduleMarkup() {
       date = `<span class="schedule-view-value">${date}</span>
         <span class="schedule-edit-controls schedule-date-input">${monthNumber}/<input name="day-${paycheckIndex}" aria-label="${name} day of month" type="number" min="1" max="${lastDay}" value="${row.day}" required></span>`;
     }
-    const isNegative = row.amountCents < 0;
-    const currency = money(Math.abs(row.amountCents));
+    const isNegative = displayCents < 0;
+    const currency = money(Math.abs(displayCents));
     const formattedAmount = isNegative ? `(${currency})` : currency;
     const prefix = row.kind === 'savings' ? (isNegative ? '−' : '+') : (isNegative ? '(' : '');
     const suffix = isNegative && row.kind !== 'savings' ? ')' : '';
@@ -230,6 +239,19 @@ function scheduleMarkup() {
     }
   });
   if (sectionRows.length) rowGroups.push(`<tbody>${sectionRows.join('')}</tbody>`);
+  const cardStatements = cardStatementPayments(budget);
+  const paidCards = cardTabs.map(tab => cardStatements.find(card => card.id === tab.id))
+    .filter(card => card.paidCents > 0);
+  const cardPaymentChecks = paidCards.map(card => {
+    const chargeTotal = card.paidCents + card.netCents;
+    let summary = `${money(card.paidCents)} paid in full`;
+    if (card.netCents > 0) {
+      summary = `${money(card.paidCents)} of ${money(chargeTotal)} paid · ${money(card.netCents)} remaining`;
+    } else if (card.netCents < 0) {
+      summary = `${money(card.paidCents)} paid · ${money(-card.netCents)} credit balance`;
+    }
+    return `<p class="schedule-card-check">${card.netCents === 0 ? '✓ ' : ''}${card.name} · ${summary}</p>`;
+  }).join('');
   const lastDate = `${selectedMonth}-${lastDay}`;
   const savingsEditors = (budget.savingsTransfers ?? []).map((transfer, index) => {
     const date = `${selectedMonth}-${String(transfer.day).padStart(2, '0')}`;
@@ -265,6 +287,7 @@ function scheduleMarkup() {
       </thead>
       ${rowGroups.join('')}
     </table>
+    ${cardPaymentChecks ? `<div role="group" aria-label="Card payment checks">${cardPaymentChecks}</div>` : ''}
     ${savingsEditors ? `<section class="schedule-edit-controls schedule-savings-editor" aria-label="Edit savings">
       <h3>Savings</h3>
       <p class="hint savings-amount-hint" id="edit-savings-amount-hint">+ from savings · − to savings</p>
@@ -277,14 +300,33 @@ function scheduleMarkup() {
   </section>`;
 }
 function cardChargeTable(charges, scope, fullActivity = false) {
-  if (!charges.length) return '<p class="hint">No card activity entered for this month.</p>';
-  const editable = !fullActivity && !budget.closed;
-  const rows = sortedCharges(charges).reverse().map((charge, index, orderedCharges) => {
+  const paymentEntries = (budget.cardPayments ?? []).filter(payment => payment.card === scope).map(payment => ({
+    id: payment.id,
+    postedDate: `${selectedMonth}-${String(payment.day).padStart(2, '0')}`,
+    amountCents: -payment.amountCents,
+    isPayment: true,
+  }));
+  if (!charges.length && !paymentEntries.length) return '<p class="hint">No card activity entered for this month.</p>';
+  const editable = !fullActivity && !budget.closed && charges.length > 0;
+  const rows = sortedCharges([...charges, ...paymentEntries]).reverse().map((charge, index, orderedCharges) => {
+    const date = displayDate(charge.postedDate);
+    const dateChanged = index > 0 && (charge.postedDate ?? '') !== (orderedCharges[index - 1].postedDate ?? '');
+    if (charge.isPayment) {
+      return `<tr data-payment-id="${esc(charge.id)}" class="charge-payment-row${dateChanged ? ' charge-date-divider' : ''}">
+        ${editable ? '<td class="charge-list-edit charge-important-cell"></td>' : ''}
+        <td><span class="charge-list-view">—</span></td>
+        <td class="charge-vendor-cell">${budget.closed ? '<span class="charge-list-view">Payment</span>' :
+          `<button type="button" class="charge-list-view charge-vendor-button" data-action="edit-card-payment" aria-haspopup="dialog" ${disabled()}>Payment</button>`}</td>
+        <td class="numeric"><span class="charge-list-view">${money(charge.amountCents)}</span></td>
+        <td class="charge-date-cell"><span class="charge-list-view">${esc(date)}</span>
+          ${budget.closed ? '' : `<button type="button" class="charge-swipe-delete" data-swipe-delete data-action="confirm-row-removal"
+            aria-label="Delete payment on ${esc(date)}" aria-haspopup="dialog" hidden ${disabled()}>Delete</button>`}
+        </td>
+      </tr>`;
+    }
     const key = esc(charge.id);
     const vendor = esc(charge.vendor);
     const code = Object.entries(CC_CATEGORY_CODES).find(([, category]) => category === charge.category)?.[0] ?? '—';
-    const date = displayDate(charge.postedDate);
-    const dateChanged = index > 0 && (charge.postedDate ?? '') !== (orderedCharges[index - 1].postedDate ?? '');
     const rowClass = [
       dateChanged ? 'charge-date-divider' : '',
       charge.important === true ? 'charge-important' : '',
@@ -309,7 +351,7 @@ function cardChargeTable(charges, scope, fullActivity = false) {
       <td class="charge-vendor-cell">${vendorCell}</td>
       <td class="numeric">${cell(esc(money(charge.amountCents)), 3)}</td>
       <td class="charge-date-cell">${cell(esc(date || 'Pending'), 2)}
-        ${editable ? `<button type="button" class="charge-swipe-delete" data-swipe-delete data-action="confirm-charge-removal"
+        ${editable ? `<button type="button" class="charge-swipe-delete" data-swipe-delete data-action="confirm-row-removal"
           aria-label="Delete ${vendor}" aria-haspopup="dialog" hidden ${disabled()}>Delete</button>` : ''}
       </td>
     </tr>`;
@@ -371,18 +413,47 @@ function cardMarkup() {
     const posted = charges.reduce((sum, charge) => sum + (charge.postedDate ? charge.amountCents : 0), 0);
     const pending = charges.reduce((sum, charge) => sum + (charge.postedDate ? 0 : charge.amountCents), 0);
     const payment = payments.find(item => item.id === card.id);
+    const recordedPayments = (budget.cardPayments ?? []).filter(entry => entry.card === card.id).sort((a, b) => b.day - a.day);
+    const canRecordPayment = !budget.closed && payment.amountCents > 0;
+    const dueDate = selectedMonth + '-' + String(card.dueDay).padStart(2, '0');
+    const defaultPaymentDate = currentMonth() === selectedMonth
+      ? selectedMonth + '-' + new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', day: '2-digit' }).format(new Date())
+      : dueDate;
     return `<div class="card-tab-panel" id="card-panel-${card.id}" role="tabpanel"
       aria-labelledby="card-tab-${card.id}" data-card-panel="${card.id}" ${card.id === activeCard ? '' : 'hidden'}>
       <div class="card-cycle">
         <p class="hint">${card.name} statement cycle · ${cardCycleDates(card)}</p>
-        <p class="hint">${money(payment.amountCents)} due <time datetime="${selectedMonth}-${String(card.dueDay).padStart(2, '0')}">${shortMonth(selectedMonth)} ${card.dueDay}</time></p>
+        <p class="hint">${money(payment.amountCents)} due <time datetime="${dueDate}">${shortMonth(selectedMonth)} ${card.dueDay}</time></p>
       </div>
-      <div class="card-totals">
+      <div class="card-totals${recordedPayments.length ? ' card-totals-with-payment' : ''}">
         <div>Posted<strong>${money(posted)}</strong></div>
         <div>Pending<strong>${money(pending)}</strong></div>
-        <div>Total<strong>${money(posted + pending)}</strong></div>
+        ${recordedPayments.length ? `<div class="card-total-paid">Paid<strong>${money(payment.paidCents)}</strong></div>
+        <div>Net total<strong>${money(payment.netCents)}</strong></div>` : `<div>Total<strong>${money(posted + pending)}</strong></div>`}
       </div>
       ${cardChargeTable(charges, card.id)}
+      ${canRecordPayment || recordedPayments.length ? `<dialog id="card-payments-${card.id}" class="schedule-item-dialog" aria-labelledby="card-payments-title-${card.id}">
+        <div class="schedule-item-heading charge-entry-heading">
+          <div>
+            <div class="hint">${card.name}</div>
+            <h3 id="card-payments-title-${card.id}">${canRecordPayment ? 'Record payment' : 'Payment history'}</h3>
+            <p class="hint">${money(payment.paidCents)} recorded · ${money(payment.amountCents)} remaining</p>
+          </div>
+          <button type="button" data-action="close-item-dialog" aria-label="Close payments">×</button>
+        </div>
+        ${recordedPayments.length ? `<ul class="card-payment-history" aria-label="Recorded payments">${recordedPayments.map(entry => `<li data-payment-id="${esc(entry.id)}">
+          <span>${Number(selectedMonth.slice(5))}/${entry.day}</span><strong>${money(entry.amountCents)}</strong>
+          ${budget.closed ? '' : `<button type="button" data-action="edit-card-payment" aria-haspopup="dialog" ${disabled()}>Edit</button>
+          <button type="button" data-action="confirm-row-removal" aria-haspopup="dialog" ${disabled()}>Remove</button>`}
+        </li>`).join('')}</ul>` : ''}
+        ${canRecordPayment ? `<form class="card-payment-form" data-card-payment="${card.id}">
+          <label>Payment type<select name="paymentType" ${disabled()}><option value="full">Full balance</option><option value="partial">Partial payment</option></select></label>
+          <label class="card-payment-amount">Amount ($)<input name="amount" inputmode="decimal" ${disabled()}></label>
+          <label>Payment date<input name="date" type="date" min="${selectedMonth}-01" max="${selectedMonth}-${daysInMonth(selectedMonth)}" value="${defaultPaymentDate}" required ${disabled()}></label>
+          <div role="alert" class="schedule-editor-error"></div>
+          <button type="submit" class="primary" ${disabled()}>Record payment</button>
+        </form>` : ''}
+      </dialog>` : ''}
       ${budget.closed ? '' : `<dialog id="charge-dialog-${card.id}" class="charge-dialog charge-entry-dialog" aria-labelledby="charge-dialog-title-${card.id}">
         <div class="schedule-item-heading charge-entry-heading">
           <div><div class="hint">${card.name}</div><h3 id="charge-dialog-title-${card.id}">Add charges</h3></div>
@@ -420,17 +491,36 @@ function cardMarkup() {
       <div class="card-month-activity-list" role="region" aria-label="Full credit card transactions" tabindex="0"></div>
     </dialog>
     <div id="charge-vendor-details" class="charge-vendor-popover" popover="auto"></div>
-    <dialog id="charge-delete-dialog" class="charge-dialog" aria-labelledby="charge-delete-title" aria-describedby="charge-delete-details">
-      <h3 id="charge-delete-title">Delete this charge?</h3>
-      <p id="charge-delete-details" class="charge-vendor-name"></p>
+    ${budget.closed ? '' : `<dialog id="edit-card-payment-dialog" class="schedule-item-dialog" aria-labelledby="edit-card-payment-title">
+      <div class="schedule-item-heading charge-entry-heading">
+        <div><div class="hint" data-payment-card-name></div><h3 id="edit-card-payment-title">Edit payment</h3></div>
+        <button type="button" data-action="close-item-dialog" aria-label="Close edit payment">×</button>
+      </div>
+      <form id="edit-card-payment" class="card-payment-form">
+        <label>Amount ($)<input name="amount" inputmode="decimal" required ${disabled()}></label>
+        <label>Payment date<input name="date" type="date" min="${selectedMonth}-01" max="${selectedMonth}-${daysInMonth(selectedMonth)}" required ${disabled()}></label>
+        <div role="alert" class="schedule-editor-error"></div>
+        <button type="submit" class="primary" ${disabled()}>Save payment</button>
+      </form>
+    </dialog>`}
+    <dialog id="entry-delete-dialog" class="charge-dialog" aria-labelledby="entry-delete-title" aria-describedby="entry-delete-details">
+      <h3 id="entry-delete-title">Remove this entry?</h3>
+      <p id="entry-delete-details" class="charge-vendor-name"></p>
       <div class="charge-delete-actions">
-        <button type="button" data-action="close-charge-dialog" autofocus>Cancel</button>
-        <button type="button" class="charge-swipe-delete" data-action="delete-saved-charge">Delete</button>
+        <button type="button" data-action="close-charge-dialog" autofocus>No</button>
+        <button type="button" class="charge-swipe-delete" data-action="delete-confirmed-row">Yes, remove</button>
       </div>
     </dialog>
     <datalist id="card-vendor-history">${knownVendors.map(name => `<option value="${esc(name)}"></option>`).join('')}</datalist>
     ${unassigned.length ? `<details class="statement"><summary>Unassigned charges (${unassigned.length})</summary>${cardChargeTable(unassigned, '')}</details>` : ''}
     ${budget.closed ? '' : `<button type="button" class="primary charge-add-button" data-action="open-charge-dialog" aria-haspopup="dialog" ${disabled()}>+ Add charges</button>`}
+    ${payments.map(card => {
+      const canRecordPayment = !budget.closed && card.amountCents > 0;
+      if (!canRecordPayment && !card.paidCents) return '';
+      return `<button type="button" class="card-payment-button" data-action="open-card-payments"
+        data-payment-card="${card.id}" aria-haspopup="dialog" aria-controls="card-payments-${card.id}"
+        ${card.id === activeCard ? '' : 'hidden'} ${busy ? 'disabled' : ''}>${canRecordPayment ? 'Record payment' : 'Payments'}</button>`;
+    }).join('')}
   </section>`;
 }
 function billsMarkup() {
@@ -446,7 +536,7 @@ function billsMarkup() {
     `<button type="button" class="bill-summary-name checking-row-toggle" data-action="toggle-checking-removal"
       title="${name}" aria-label="Removal options for ${name}" aria-expanded="false" ${disabled()}>${name}</button>`;
   const removeButton = name => budget.closed ? '' : `<button type="button" class="charge-swipe-delete checking-item-delete" data-swipe-delete
-    data-action="delete-checking-row" aria-label="Remove ${name}" ${disabled()} hidden>Remove</button>`;
+    data-action="confirm-row-removal" aria-label="Remove ${name}" aria-haspopup="dialog" ${disabled()} hidden>Remove</button>`;
   const rows = bills.map(bill => {
     const key = esc(bill.id);
     const name = esc(bill.name);
@@ -539,17 +629,35 @@ function billsMarkup() {
 }
 function render() {
   headerSizeObserver.disconnect();
+  scheduleVisibilityObserver?.disconnect();
   if (supabase && !activeUser) return renderAuth();
   if (!budget) { root.innerHTML = `<main class="auth"><div class="wordmark">m.</div><p>${loading ? 'Opening your month…' : esc(error || 'Could not open your budget.')}</p>${!loading ? '<button data-action="reload">Try again</button>' : ''}</main>`; return; }
   const tileScrollSelector = '.workspace .tile-scroll';
+  const enteringSchedule = !root.querySelector('.schedule-panel');
   const tileScroll = root.querySelector('.workspace')?.scrollLeft ?? 0;
   const tileScrollTops = Array.from(root.querySelectorAll(tileScrollSelector), list => list.scrollTop);
-  root.innerHTML = `<div class="app-shell"><header><div class="topline"><div class="brand">m.</div><div class="account">${supabase ? `<button data-action="sign-out" ${busy || dirty ? 'disabled' : ''}>Sign out</button>` : '<span>Stored on this device</span>'}</div></div>${monthNavigationMarkup(selectedMonth, busy || dirty)}<div class="save-line" role="status">${busy ? 'Saving…' : dirty ? 'Changes need to be saved' : supabase ? 'Saved to your account' : 'Saved on this device'}${notice ? ` · ${esc(notice)}` : ''}</div></header>${error ? `<div class="error-banner" role="alert"><p>${esc(error)}</p><div>${dirty ? '<button data-action="retry">Retry save</button>' : ''}<button data-action="reload">Reload saved version</button></div></div>` : ''}<main class="workspace">${scheduleMarkup()}<div class="ledgers">${cardMarkup()}${billsMarkup()}</div></main></div>`;
+  root.innerHTML = `<div class="app-shell"><header><div class="topline">${accountMarkup()}</div>${monthNavigationMarkup(selectedMonth, busy || dirty)}<div class="save-line" role="status">${busy ? 'Saving…' : dirty ? 'Changes need to be saved' : supabase ? 'Saved to your account' : 'Saved on this device'}${notice ? ` · ${esc(notice)}` : ''}</div></header>${error ? `<div class="error-banner" role="alert"><p>${esc(error)}</p><div>${dirty ? '<button data-action="retry">Retry save</button>' : ''}<button data-action="reload">Reload saved version</button></div></div>` : ''}<main class="workspace">${scheduleMarkup()}<div class="ledgers">${cardMarkup()}${billsMarkup()}</div></main></div>`;
   const header = root.querySelector('.app-shell > header');
   root.style.setProperty('--budget-header-height', header.offsetHeight + 'px');
   headerSizeObserver.observe(header);
   root.querySelector('.workspace').scrollLeft = tileScroll;
   root.querySelectorAll(tileScrollSelector).forEach((list, index) => { list.scrollTop = tileScrollTops[index] ?? 0; });
+  const workspace = root.querySelector('.workspace');
+  const schedulePanel = workspace.querySelector('.schedule-panel');
+  const scheduleList = schedulePanel.querySelector('.tile-scroll');
+  const showRollover = () => {
+    if (schedulePanel.isConnected && !schedulePanel.querySelector('.is-editing')) {
+      scheduleList.scrollTop = scheduleList.scrollHeight;
+    }
+  };
+  if (enteringSchedule) requestAnimationFrame(showRollover);
+  let scheduleVisible = workspace.scrollLeft < workspace.clientWidth / 2;
+  scheduleVisibilityObserver = new IntersectionObserver(([entry]) => {
+    const visible = entry.isIntersecting && entry.intersectionRatio >= 0.6;
+    if (visible && !scheduleVisible && workspace.scrollWidth > workspace.clientWidth) showRollover();
+    scheduleVisible = visible;
+  }, { root: workspace, threshold: [0, 0.6] });
+  scheduleVisibilityObserver.observe(schedulePanel);
   scrollToLatestCharges();
 }
 function scrollToLatestCharges() {
@@ -740,6 +848,9 @@ function selectCard(cardId, focus = false) {
   for (const panel of root.querySelectorAll('[data-card-panel]')) {
     panel.hidden = panel.dataset.cardPanel !== cardId;
   }
+  for (const button of root.querySelectorAll('[data-payment-card]')) {
+    button.hidden = button.dataset.paymentCard !== cardId;
+  }
   scrollToLatestCharges();
 }
 function revealRowDelete(row = null) {
@@ -763,8 +874,8 @@ document.addEventListener('scroll', () => {
 root.addEventListener('touchstart', event => {
   rowTouchStart = null;
   if (event.touches.length !== 1 ||
-      event.target.closest('input, select, textarea, label, .charge-dialog, [data-swipe-delete]')) return;
-  const row = event.target.closest('.charge-list:not(.is-editing) tr[data-charge-id], #edit-bills:not(.is-editing) .bill-list > li');
+      event.target.closest('input, select, textarea, label, .charge-dialog:not(.card-month-activity), [data-swipe-delete]')) return;
+  const row = event.target.closest('.charge-list:not(.is-editing) tr:is([data-charge-id], [data-payment-id]), .card-month-activity tr[data-payment-id], #edit-bills:not(.is-editing) .bill-list > li');
   const swipeRow = row?.querySelector('[data-swipe-delete]:enabled') ? row : null;
   if (!swipeRow && (window.matchMedia('(max-width: 759px)').matches ||
       !event.target.closest('[data-card-panel], .card-tabs'))) return;
@@ -855,6 +966,25 @@ root.addEventListener('submit', async event => {
     return;
   }
   if (busy || !budget || budget.closed) return;
+  if (form.dataset.cardPayment || form.id === 'edit-card-payment') {
+    const message = form.querySelector('.schedule-editor-error');
+    try {
+      const paymentId = form.dataset.paymentId;
+      const previous = paymentId ? rowById(budget.cardPayments, paymentId) : null;
+      const card = cardStatementPayments(budget).find(item => item.id === (previous?.card ?? form.dataset.cardPayment));
+      const day = scheduleItemDay(fields.get('date'));
+      const amountCents = previous || fields.get('paymentType') === 'partial' ? toCents(fields.get('amount')) : card.amountCents;
+      const maximum = card.amountCents + (previous?.amountCents ?? 0);
+      if (amountCents <= 0 || amountCents > maximum) {
+        throw new Error(`Enter a payment greater than zero and no more than ${money(maximum)}.`);
+      }
+      await commit(next => {
+        if (previous) Object.assign(rowById(next.cardPayments, paymentId), { day, amountCents });
+        else (next.cardPayments ??= []).push({ id: id(), card: card.id, day, amountCents });
+      });
+    } catch (cause) { message.textContent = cause.message; }
+    return;
+  }
   if (form.id === 'edit-bills') {
     if (!form.classList.contains('is-editing')) return;
     const message = form.querySelector('.schedule-editor-error');
@@ -1021,7 +1151,7 @@ root.addEventListener('submit', async event => {
   }
 });
 root.addEventListener('click', async event => {
-  if (!event.target.closest('.charge-swipe-delete, .charge-dialog, .checking-row-toggle')) revealRowDelete();
+  if (!event.target.closest('.charge-swipe-delete, .charge-dialog:not(.card-month-activity), .checking-row-toggle')) revealRowDelete();
   const button = event.target.closest('[data-action]'); if (!button || button.disabled) return;
   const action = button.dataset.action;
   if (action === 'toggle-schedule-section') {
@@ -1034,6 +1164,23 @@ root.addEventListener('click', async event => {
   }
   if (action === 'open-bill-breakdown') {
     document.getElementById(button.getAttribute('aria-controls')).showModal();
+    return;
+  }
+  if (action === 'open-card-payments') {
+    document.getElementById(button.getAttribute('aria-controls')).showModal();
+    return;
+  }
+  if (action === 'edit-card-payment') {
+    if (busy || budget.closed) return;
+    const payment = rowById(budget.cardPayments, button.closest('[data-payment-id]').dataset.paymentId);
+    const dialog = root.querySelector('#edit-card-payment-dialog');
+    const form = dialog.querySelector('form');
+    form.dataset.paymentId = payment.id;
+    form.elements.amount.value = amount(payment.amountCents);
+    form.elements.date.value = `${selectedMonth}-${String(payment.day).padStart(2, '0')}`;
+    form.querySelector('.schedule-editor-error').textContent = '';
+    dialog.querySelector('[data-payment-card-name]').textContent = cardTabs.find(card => card.id === payment.card).name;
+    dialog.showModal();
     return;
   }
   if (action === 'open-item-dialog') {
@@ -1089,24 +1236,30 @@ root.addEventListener('click', async event => {
     popover.style.bottom = above ? viewportHeight - anchor.top + 4 + 'px' : 'auto';
     return;
   }
-  if (action === 'confirm-charge-removal') {
+  if (action === 'confirm-row-removal') {
     if (busy || budget.closed) return;
-    const charge = rowById(budget.charges, button.closest('tr').dataset.chargeId);
-    const dialog = root.querySelector('#charge-delete-dialog');
-    dialog.dataset.chargeId = charge.id;
-    dialog.querySelector('#charge-delete-details').textContent =
-      [charge.vendor, money(charge.amountCents), displayDate(charge.postedDate) || 'Pending'].join(' · ');
+    const { chargeId, billId, checkingId, paymentId } = button.closest('tr, li').dataset;
+    const collection = chargeId ? 'charges' : billId ? 'bills' : checkingId ? 'checkingItems' : 'cardPayments';
+    const entry = rowById(budget[collection], chargeId ?? billId ?? checkingId ?? paymentId);
+    const card = cardTabs.find(item => item.id === entry.card);
+    const name = entry.vendor ?? entry.name ?? `${card?.name ?? 'Card'} payment`;
+    const date = chargeId ? displayDate(entry.postedDate) || 'Pending' : `${Number(selectedMonth.slice(5))}/${entry.day}`;
+    const dialog = root.querySelector('#entry-delete-dialog');
+    dialog.dataset.collection = collection;
+    dialog.dataset.entryId = entry.id;
+    dialog.querySelector('#entry-delete-details').textContent = [name, money(entry.amountCents), date].join(' · ');
     dialog.showModal();
     return;
   }
-  if (action === 'delete-saved-charge') {
+  if (action === 'delete-confirmed-row') {
     const dialog = button.closest('dialog');
-    const chargeId = dialog.dataset.chargeId;
+    if (!dialog.open || busy || budget.closed) return;
+    const { collection, entryId } = dialog.dataset;
     dialog.close();
+    revealRowDelete();
     await commit(next => {
-      next.charges = next.charges.filter(charge => charge.id !== chargeId);
+      next[collection] = next[collection].filter(entry => entry.id !== entryId);
     });
-    root.querySelector('[data-action="open-card-month-activity"]')?.focus({ preventScroll: true });
     return;
   }
   if (action === 'queue-charge') {
@@ -1161,15 +1314,6 @@ root.addEventListener('click', async event => {
     const open = !row.classList.contains('swipe-row-open');
     revealRowDelete(open ? row : null);
     if (open && event.detail === 0) row.querySelector('[data-swipe-delete]').focus();
-    return;
-  }
-  if (action === 'delete-checking-row') {
-    const { billId, checkingId } = button.closest('li').dataset;
-    revealRowDelete();
-    await commit(next => {
-      if (billId !== undefined) next.bills = next.bills.filter(bill => bill.id !== billId);
-      else next.checkingItems = next.checkingItems.filter(item => item.id !== checkingId);
-    });
     return;
   }
   if (action === 'cancel-charge-edits') {

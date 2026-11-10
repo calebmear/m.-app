@@ -1,3 +1,69 @@
+.topline {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+}
+
+.topline .brand {
+  position: static;
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: center;
+  transform: none;
+  line-height: 1;
+}
+
+.topline .account {
+  position: static;
+  grid-column: 3;
+  grid-row: 1;
+  justify-self: end;
+  display: flex;
+  align-items: center;
+  transform: none;
+}
+
+.topline .account-menu-trigger {
+  display: inline-grid;
+  place-items: center;
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink, #192a20);
+  font-family: inherit;
+  cursor: pointer;
+}
+
+#account-menu {
+  position: fixed;
+  inset: calc(env(safe-area-inset-top, 0px) + 3.75rem) auto auto 50%;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 0.35rem;
+  border: 1px solid var(--line, #d5ddd4);
+  border-radius: 0.85rem;
+  background: #fff;
+  color: var(--ink, #192a20);
+  box-shadow: 0 0.4rem 1.25rem rgb(18 28 20 / 12%);
+}
+
+#account-menu > button {
+  min-height: 2.75rem;
+  padding: 0.5rem 1rem;
+  border: 0;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+#account-menu > button:is(:hover, :focus-visible) {
+  background: #edf2e9;
+}
+
 .schedule.schedule-ledger {
   width: 100%;
   border-collapse: collapse;
@@ -27,12 +93,6 @@
   padding-inline-end: 0.5rem;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
-}
-
-.schedule-ledger .schedule-amount-suffix {
-  display: inline-block;
-  text-align: start;
-  inline-size: 0.45rem;
 }
 
 .schedule-ledger tbody tr > .schedule-date {
@@ -112,16 +172,16 @@
   font-size: 1.125em;
 }
 
-.schedule-ledger :is(.schedule-type-bill, .schedule-type-card) { --schedule-entry-color: #b42318; }
+.schedule-ledger :is(.schedule-type-bill, .schedule-type-card, .schedule-type-payment) { --schedule-entry-color: #b42318; }
 .schedule-ledger .schedule-type-pay { --schedule-entry-color: #146b38; }
 .schedule-ledger .schedule-type-savings { --schedule-entry-color: #1e57a5; }
 .schedule-ledger .schedule-type-etsy { --schedule-entry-color: #77379b; }
 
-.schedule-ledger :is(.schedule-type-bill, .schedule-type-card, .schedule-type-pay, .schedule-type-savings, .schedule-type-etsy) > :is(th[scope="row"], td.numeric) {
+.schedule-ledger :is(.schedule-type-bill, .schedule-type-card, .schedule-type-pay, .schedule-type-savings, .schedule-type-etsy, .schedule-type-payment) > :is(th[scope="row"], td.numeric) {
   color: var(--schedule-entry-color);
 }
 
-.schedule-ledger .schedule-type-card > :is(th[scope="row"], td.numeric) {
+.schedule-ledger :is(.schedule-type-card, .schedule-type-payment) > :is(th[scope="row"], td.numeric) {
   font-weight: 700;
 }
 
@@ -226,12 +286,12 @@
 
 .card-month-activity-button {
   position: absolute;
-  inset-block-start: 0.25rem;
-  inset-inline-start: 0.25rem;
+  inset-block-start: 0.5rem;
+  inset-inline-start: 0.5rem;
   display: inline-grid;
   place-items: center;
-  width: 2.75rem;
-  height: 2.75rem;
+  width: 2.125rem;
+  height: 2.125rem;
   padding: 0;
   border-color: transparent;
   background: transparent;
@@ -250,6 +310,36 @@
   margin-block: 0;
 }
 
+.card-payment-form {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.card-payment-form label {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.card-payment-form:not(:has(option[value="partial"]:checked)) .card-payment-amount {
+  display: none;
+}
+
+.card-payment-history {
+  list-style: none;
+  padding: 0;
+}
+
+.card-payment-history > li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding-block: 0.25rem;
+}
+
+.card-payment-history > li > button:first-of-type {
+  margin-inline-start: auto;
+}
+
 .card-panel .card-totals {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -266,16 +356,34 @@
   overflow-wrap: anywhere;
 }
 
+.card-panel .card-totals-with-payment {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.card-panel .card-totals-with-payment strong {
+  font-size: clamp(0.85rem, 3.6vw, 1.1rem);
+}
+
+.card-total-paid { color: #626a65; }
+
 .card-tab-panel > .charge-list {
   margin-block-start: 0.475rem;
 }
 
-.charge-add-button {
+.charge-add-button,
+.card-payment-button {
   width: 100%;
   margin-top: 0.65rem;
 }
 
-.card-panel:has(.card-tab-panel:not([hidden]) > .charge-list.is-editing, .statement[open] > .charge-list.is-editing) > .charge-add-button {
+.card-payment-button {
+  background: #fff;
+  color: var(--ink, #192a20);
+  border: 1px solid var(--line, #d5ddd4);
+}
+
+.card-payment-button[hidden],
+.card-panel:has(.card-tab-panel:not([hidden]) > .charge-list.is-editing, .statement[open] > .charge-list.is-editing) > :is(.charge-add-button, .card-payment-button) {
   display: none;
 }
 
@@ -395,7 +503,7 @@ body:has(dialog:modal) :is(.workspace, .tile-scroll, .charge-list-scroll, .card-
   padding: 0.875rem 0.875rem 0;
 }
 
-.charge-entry-dialog .charge-entry-heading {
+.schedule-item-heading.charge-entry-heading {
   display: grid;
   grid-template-columns: 2.25rem minmax(0, 1fr) 2.25rem;
   margin-bottom: 0.5rem;
@@ -899,25 +1007,26 @@ body:has(dialog:modal) :is(.workspace, .tile-scroll, .charge-list-scroll, .card-
   text-align: start;
 }
 
-.charge-list:not(.is-editing) tr:has(.charge-swipe-delete:enabled) > td {
+:is(.charge-list:not(.is-editing) tr, .card-month-activity-list .charge-payment-row):has(.charge-swipe-delete:enabled) > td {
   touch-action: pan-y pinch-zoom;
 }
 
-.charge-list {
+.charge-list,
+.card-month-activity-list {
   --charge-swipe-width: 4rem;
 }
 
-.charge-list:not(.is-editing) td > .charge-list-view {
+:is(.charge-list:not(.is-editing) tr, .card-month-activity-list .charge-payment-row) > td > .charge-list-view {
   display: block;
   transition: transform 160ms ease-out;
 }
 
-.charge-list:not(.is-editing) .swipe-row-open > td > .charge-list-view {
+:is(.charge-list:not(.is-editing), .card-month-activity-list) .swipe-row-open > td > .charge-list-view {
   transform: translateX(calc(-1 * var(--charge-swipe-width)));
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .charge-list:not(.is-editing) td > .charge-list-view,
+  :is(.charge-list:not(.is-editing) tr, .card-month-activity-list .charge-payment-row) > td > .charge-list-view,
   #edit-bills:not(.is-editing) li:has(.checking-item-delete:enabled) > .bill-summary {
     transition: none;
   }
@@ -943,7 +1052,7 @@ body:has(dialog:modal) :is(.workspace, .tile-scroll, .charge-list-scroll, .card-
   color: #fff;
 }
 
-.charge-list.is-editing .charge-swipe-delete,
+.charge-list.is-editing :is(.charge-swipe-delete, .charge-payment-row),
 .charge-swipe-delete[hidden] {
   display: none;
 }
@@ -991,6 +1100,10 @@ body:has(dialog:modal) :is(.workspace, .tile-scroll, .charge-list-scroll, .card-
 .charge-list-table tbody .charge-refund {
   --charge-color: #146b38;
   color: var(--charge-color);
+}
+
+.charge-list-table tbody .charge-payment-row {
+  --charge-color: #666;
 }
 
 .charge-list-table td > .charge-list-view {
@@ -1257,15 +1370,11 @@ display: none;
   font-variant-numeric: tabular-nums;
 }
 
-.schedule-bill-check {
+.schedule-card-check {
   margin: 0.45rem 0 0;
-  color: #356046;
+  color: #626a65;
   font-size: 0.8rem;
   text-align: center;
-}
-
-.schedule-bill-check.is-mismatch {
-  color: #a52830;
 }
 
 @media (max-width: 759px) {
@@ -1348,7 +1457,7 @@ display: none;
     background: var(--paper, #fff);
   }
 
-  .workspace .card-panel > .charge-add-button {
+  .workspace .card-panel > :is(.charge-add-button, .card-payment-button) {
     border-radius: var(--tile-inner-radius);
   }
 

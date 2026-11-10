@@ -29,18 +29,10 @@
   font-variant-numeric: tabular-nums;
 }
 
-.schedule-ledger .schedule-amount-cents,
 .schedule-ledger .schedule-amount-suffix {
   display: inline-block;
   text-align: start;
-}
-
-.schedule-ledger .schedule-amount-cents {
-  inline-size: 1.25em;
-}
-
-.schedule-ledger .schedule-amount-suffix {
-  inline-size: 0.4em;
+  inline-size: 0.45rem;
 }
 
 .schedule-ledger tbody tr > .schedule-date {
@@ -53,6 +45,51 @@
 .schedule-ledger .schedule-balance > *,
 .schedule-ledger .schedule-ending > * {
   font-weight: 600;
+}
+
+#edit-schedule:not(.is-editing) .schedule-section[data-collapsed],
+#edit-schedule.is-editing .schedule-section-toggle {
+  display: none;
+}
+
+.schedule-ledger .schedule-checkpoint {
+  position: relative;
+}
+
+.schedule-ledger .schedule-section-toggle {
+  position: static;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.35rem;
+  width: 100%;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.schedule-section-toggle::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
+.schedule-section-chevron {
+  width: 0.4rem;
+  height: 0.4rem;
+  margin-inline-end: 0.25rem;
+  border: solid currentColor;
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(45deg);
+}
+
+.schedule-section-toggle[aria-expanded="true"] .schedule-section-chevron {
+  transform: rotate(225deg);
 }
 
 .schedule-ledger tbody > .schedule-balance.schedule-type-balance > * {
@@ -176,8 +213,17 @@
   inset-inline-end: 0.5rem;
 }
 
-.card-tab-panel .charge-list:not(.is-editing) .charge-list-actions {
-  margin-bottom: 0;
+.card-month-activity-button {
+  position: absolute;
+  inset-block-start: 0.25rem;
+  inset-inline-start: 0.25rem;
+  display: inline-grid;
+  place-items: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
 }
 
 .schedule-panel .panel-heading .schedule-editor-actions {
@@ -218,6 +264,10 @@
   margin-top: 0.65rem;
 }
 
+.card-panel:has(.card-tab-panel:not([hidden]) > .charge-list.is-editing, .statement[open] > .charge-list.is-editing) > .charge-add-button {
+  display: none;
+}
+
 .charge-dialog,
 .schedule-item-dialog {
   box-sizing: border-box;
@@ -239,12 +289,103 @@
   margin: 0 0 0.65rem;
 }
 
-.charge-batch-date {
+.charge-dialog.card-month-activity {
+  width: min(44rem, calc(100% - 1rem));
+  max-height: calc(100dvh - 1rem);
+}
+
+.card-month-activity .card-month-activity-heading {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: 2.25rem minmax(0, 1fr) 2.25rem;
+  margin-bottom: 0.375rem;
+  text-align: center;
+}
+
+.card-month-activity-labels {
+  grid-column: 2;
+  display: grid;
   gap: 0.25rem;
-  width: min(100%, 12rem);
+}
+
+.card-month-activity-heading h3 {
+  text-transform: uppercase;
+}
+
+.card-month-activity .card-month-activity-cycle {
+  margin: 0;
+}
+
+.card-month-activity .charge-list-table .charge-vendor-cell > .charge-list-view {
+  contain: none;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.charge-vendor-name {
+  overflow-wrap: anywhere;
+}
+
+.charge-vendor-popover {
+  position: fixed;
+  inset: auto;
+  left: var(--vendor-popover-left, 0.5rem);
+  box-sizing: border-box;
+  width: max-content;
+  max-width: min(19rem, calc(100vw - var(--vendor-popover-left, 0.5rem) - 0.5rem));
+  margin: 0;
+  padding: 0.4rem 0.65rem;
+  border: 1px solid var(--line, #d5ddd4);
+  border-radius: 0.5rem;
+  background: var(--paper, #fff);
+  color: inherit;
+  box-shadow: 0 2px 8px rgb(20 33 25 / 14%);
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+
+.charge-delete-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.charge-dialog.charge-entry-dialog {
+  width: min(26rem, calc(100% - 1rem));
+  padding: 0.875rem 0.875rem 0;
+}
+
+.charge-entry-dialog .charge-entry-heading {
+  display: grid;
+  grid-template-columns: 2.25rem minmax(0, 1fr) 2.25rem;
   margin-bottom: 0.5rem;
+  text-align: center;
+}
+
+.charge-entry-heading > div {
+  grid-column: 2;
+}
+
+.charge-entry-heading .hint {
+  margin: 0;
+}
+
+.charge-batch-date,
+.charge-batch-date label {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+}
+
+.charge-batch-date input {
+  box-sizing: border-box;
+  width: 6.5rem;
+  min-width: 0;
+}
+
+.charge-batch-date button[aria-pressed="true"] {
+  background: var(--accent, #234635);
+  color: #fff;
 }
 
 .charge-draft-list {
@@ -253,13 +394,29 @@
 }
 
 .charge-draft-list:not(:empty) {
-  margin-top: 0.65rem;
+  margin-top: 0.5rem;
 }
 
 .charge-draft-item {
+  display: grid;
+  grid-template-columns: 1.5rem minmax(0, 1fr) auto;
+  gap: 0.375rem;
+  align-items: center;
   width: 100%;
+  border-width: 1px 0 0;
+  border-radius: 0;
+  padding-inline: 0.25rem;
   text-align: left;
-  overflow-wrap: anywhere;
+}
+
+.charge-draft-item > span:nth-child(2) {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.charge-draft-item > span:last-child {
+  font-variant-numeric: tabular-nums;
 }
 
 .charge-draft-item[aria-pressed="true"] {
@@ -271,22 +428,94 @@
 }
 
 .charge-draft-editor {
+  --charge-control-height: 2.75rem;
   display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
-  gap: 0.45rem 0.6rem;
-  margin-block: 0.65rem 0.25rem;
+  grid-template-columns: minmax(0, 1fr) 4rem 2.75rem;
+  gap: 0.375rem;
+  margin-top: 0.5rem;
 }
 
-.charge-draft-editor label:not(.checkbox-label) {
+.charge-draft-editor > label,
+.charge-draft-flag {
   display: grid;
+  grid-template-rows: auto var(--charge-control-height);
   gap: 0.2rem;
   min-width: 0;
+  color: var(--muted, #506158);
+  font-size: 0.875rem;
+  line-height: 1.25;
+}
+
+.charge-draft-flag {
+  text-align: center;
+}
+
+.charge-draft-code {
+  position: relative;
+}
+
+.charge-draft-code select {
+  appearance: none;
+  color: transparent;
+}
+
+.charge-draft-code option {
+  color: var(--ink, #192a20);
+}
+
+.charge-draft-code-value {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding-inline-end: 0.75rem;
+  color: var(--ink, #192a20);
+  font-size: 1rem;
+  pointer-events: none;
+}
+
+.charge-draft-code-value::after {
+  content: "";
+  position: absolute;
+  inset-inline-end: 0.6rem;
+  width: 0.35rem;
+  height: 0.35rem;
+  border: solid currentColor;
+  border-width: 0 1px 1px 0;
+  transform: rotate(45deg);
+}
+
+.charge-draft-flag .charge-important-toggle {
+  box-sizing: border-box;
+  width: 100%;
+  height: var(--charge-control-height);
+  margin: 0;
+  border: 1px solid var(--line, #d5ddd4);
+  border-radius: 0.5rem;
+  font-size: 1rem;
+}
+
+.charge-draft-flag .charge-important-toggle:has(input:checked) {
+  background: var(--accent, #234635);
+  color: #fff;
+}
+
+.charge-draft-flag .charge-important-toggle span {
+  pointer-events: none;
 }
 
 .charge-draft-editor :is(input:not([type="checkbox"]), select) {
+  display: block;
   box-sizing: border-box;
   width: 100%;
   min-width: 0;
+  height: var(--charge-control-height);
+  margin: 0;
+}
+
+.charge-entry-dialog :is(input:not([type="checkbox"]), select) {
+  min-height: 2.75rem;
+  font-size: max(1rem, 16px);
 }
 
 .charge-draft-vendor,
@@ -296,6 +525,7 @@
 
 .charge-draft-actions {
   display: flex;
+  justify-content: flex-end;
   flex-wrap: wrap;
   gap: 0.4rem;
 }
@@ -304,20 +534,23 @@
   display: none;
 }
 .charge-batch-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  margin-block: 0.65rem;
+  position: sticky;
+  bottom: 0;
+  display: grid;
+  gap: 0.375rem;
+  padding: 0.5rem 0 max(0.75rem, env(safe-area-inset-bottom));
+  background: var(--paper, #fff);
 }
 
 .charge-list {
   margin-block: 0.75rem;
 }
 
-.charge-list-actions {
-  display: flex;
-  justify-content: flex-end;
-  margin-bottom: 0.35rem;
+.charge-list.is-editing .charge-list-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0.5rem;
+  margin-top: 0.65rem;
 }
 
 .charge-list:not(.is-editing) .charge-list-edit,
@@ -375,13 +608,12 @@
 
 #edit-bills:not(.is-editing) :is(.bill-fields, .bill-edit-actions),
 #edit-bills.is-editing :is(.bill-summary, .bill-edit-button),
-#edit-bills.is-editing ~ .panel-add-button,
-.bill-list > li[hidden] {
+#edit-bills.is-editing ~ .panel-add-button {
   display: none;
 }
 
 .bill-fields {
-  grid-template-columns: 2.75rem minmax(0, 1fr) clamp(3.9rem, 18vw, 5.5rem) 1.5rem 1.75rem;
+  grid-template-columns: 3.5rem minmax(0, 1fr) clamp(3.9rem, 18vw, 5.5rem) 1.5rem;
   gap: 0.25rem;
   padding-inline: 0.25rem;
 }
@@ -412,7 +644,7 @@
   margin: 0;
 }
 
-.bill-fields input:not([type="checkbox"]) {
+.bill-fields :is(input:not([type="checkbox"]), select) {
   box-sizing: border-box;
   width: 100%;
   min-width: 0;
@@ -420,13 +652,79 @@
   padding-inline: 0.2rem;
 }
 
-.bill-fields > input[name^="day-"] { text-align: center; }
+.bill-fields > select[name^="day-"] { font-size: 0.875rem; }
 .bill-fields > input[name^="amount-"] { text-align: right; }
 
-.bill-remove-button {
+.bill-summary.checking-item-summary {
+  grid-template-columns: 2.5rem minmax(0, 1fr) max-content;
+}
+
+.checking-row-toggle {
   min-width: 0;
-  min-height: 2.25rem;
+  min-height: 2.75rem;
   padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+#edit-bills .bill-list > li {
+  --checking-swipe-width: 5rem;
+  position: relative;
+  overflow: hidden;
+}
+
+#edit-bills:not(.is-editing) li:has(.checking-item-delete:enabled) > .bill-summary {
+  touch-action: pan-y pinch-zoom;
+  transition: transform 160ms ease-out;
+}
+
+.swipe-row-open > .bill-summary {
+  transform: translateX(calc(-1 * var(--checking-swipe-width)));
+}
+
+.checking-item-delete {
+  position: absolute;
+  inset-block: 0.35rem;
+  inset-inline-end: 0;
+  box-sizing: border-box;
+  width: var(--checking-swipe-width);
+  padding-inline: 0.25rem;
+}
+
+#edit-bills.is-editing .checking-item-delete {
+  display: none;
+}
+
+.bill-fields.checking-item-fields {
+  grid-template-columns: 3.5rem minmax(0, 1fr) clamp(3.9rem, 18vw, 5.5rem);
+}
+
+.checking-item-fields > input[name^="misc-amount-"] {
+  text-align: right;
+}
+
+.checking-items {
+  margin-top: 0.75rem;
+}
+
+.checking-items h3 {
+  margin: 0;
+  font-size: 1rem;
+  text-align: center;
+}
+
+.schedule-month-options {
+  margin-top: 0.75rem;
+}
+
+.schedule-month-options .footer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-block: 0.5rem;
 }
 
 .bill-edit-actions {
@@ -491,7 +789,7 @@
   text-align: left;
 }
 
-.charge-list-table :is(th, td):not(:nth-child(2)) {
+.charge-list-table :is(th, td):not(.charge-vendor-cell) {
   width: 1%;
   white-space: nowrap;
 }
@@ -504,15 +802,76 @@
   border-top: 2px solid #8b968d;
 }
 
-.charge-list-table td:nth-child(2) > :is(.charge-list-view, .charge-list-edit) {
+.charge-list-table td.charge-vendor-cell > :is(.charge-list-view, .charge-list-edit) {
   contain: inline-size;
 }
 
-.charge-list-table :where(td:nth-child(2)) > .charge-list-view {
+.charge-list-table :where(td.charge-vendor-cell) > .charge-list-view {
   display: block;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+.charge-list-table td > .charge-vendor-button {
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  font: inherit;
+  text-align: start;
+}
+
+.charge-list:not(.is-editing) tr:has(.charge-swipe-delete:enabled) > td {
+  touch-action: pan-y pinch-zoom;
+}
+
+.charge-list {
+  --charge-swipe-width: 4rem;
+}
+
+.charge-list:not(.is-editing) td > .charge-list-view {
+  display: block;
+  transition: transform 160ms ease-out;
+}
+
+.charge-list:not(.is-editing) .swipe-row-open > td > .charge-list-view {
+  transform: translateX(calc(-1 * var(--charge-swipe-width)));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .charge-list:not(.is-editing) td > .charge-list-view,
+  #edit-bills:not(.is-editing) li:has(.checking-item-delete:enabled) > .bill-summary {
+    transition: none;
+  }
+}
+
+.charge-list-table .charge-date-cell {
+  position: relative;
+}
+
+.charge-date-cell > .charge-swipe-delete {
+  position: absolute;
+  inset-block: 0.2rem;
+  inset-inline-end: 0;
+  box-sizing: border-box;
+  width: var(--charge-swipe-width);
+  min-height: 0;
+  padding: 0 0.25rem;
+}
+
+.charge-swipe-delete {
+  background: #a52830;
+  border-color: #a52830;
+  color: #fff;
+}
+
+.charge-list.is-editing .charge-swipe-delete,
+.charge-swipe-delete[hidden] {
+  display: none;
 }
 
 .charge-list-table thead th {
@@ -587,23 +946,25 @@
   text-align: right;
 }
 
-.charge-list-table .charge-code-edit {
-display: flex;
-align-items: center;
+.charge-list.is-editing .charge-list-table .charge-important-cell {
+  padding-inline-end: 0.375rem;
 }
 
-.charge-list-table .charge-list-edit .charge-code-edit select {
-appearance: none;
-width: 1.4rem;
-text-overflow: clip;
+.charge-list-table .charge-list-edit select.charge-code-edit {
+  appearance: none;
+  width: 2rem;
+  min-height: 2.75rem;
+  padding-inline: 0.35rem 0.55rem;
+  text-overflow: clip;
 }
 
 .charge-important-toggle {
-position: relative;
-place-items: center;
-width: 1rem;
-min-height: 2.25rem;
-cursor: pointer;
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  min-height: 2.75rem;
+  cursor: pointer;
 }
 
 .charge-important-toggle input {
@@ -627,21 +988,6 @@ opacity: 1;
 
 .charge-important-toggle input:focus-visible + span {
 outline: 2px solid var(--accent);
-}
-
-.charge-list-table .charge-remove-button {
-width: 1.75rem;
-height: 2.25rem;
-min-width: 0;
-min-height: 0;
-padding: 0;
-font-size: 1rem;
-}
-
-.charge-list.is-editing .charge-list-actions .charge-list-edit {
-display: flex;
-flex-wrap: wrap;
-gap: 0.4rem;
 }
 
 /* Match the app's list typography and override the legacy italic cells. */
@@ -678,6 +1024,11 @@ contain: inline-size;
 overflow: hidden;
 white-space: nowrap;
 text-overflow: ellipsis;
+}
+
+#edit-schedule .schedule-type-opening .schedule-description {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .schedule-savings-editor {
@@ -768,7 +1119,7 @@ grid-template-columns: repeat(2, minmax(0, 1fr));
 gap: 0.5rem;
 }
 
-.schedule-item-form > :is(label:first-child, .schedule-item-actions, .schedule-editor-error) {
+.schedule-item-form > :is(label:first-child, .schedule-item-actions, .schedule-editor-error, .savings-amount-hint) {
 grid-column: 1 / -1;
 }
 

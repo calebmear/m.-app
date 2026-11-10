@@ -15,7 +15,7 @@ export const CC_CATEGORY_CODES = {
 export const CATEGORIES = ['Uncategorized', ...Object.values(CC_CATEGORY_CODES)];
 export const CARDS = [
   { id: 'amex', name: 'Amex', dueDay: 17 },
-  { id: 'capone', name: 'CapOne', dueDay: 21 },
+  { id: 'capone', name: 'Capital One', dueDay: 21 },
 ];
 export const copy = value => JSON.parse(JSON.stringify(value));
 export const id = () => globalThis.crypto.randomUUID();
@@ -159,6 +159,9 @@ export function eventsForMonth(document) {
     ...(document.savingsTransfers ?? []).map(({ day, amountCents }) => ({
       day, amountCents, kind: 'savings', priority: amountCents > 0 ? 0 : 1,
     })),
+    ...(document.checkingItems ?? []).map(({ day, amountCents }) => ({
+      day, amountCents, kind: 'checking', priority: amountCents > 0 ? 0 : 1,
+    })),
     ...document.bills.map(b => ({ day: b.day, amountCents: -b.amountCents, kind: 'bill', priority: 1 })),
     { day: document.statement.paymentDay, amountCents: -document.statement.amountCents, kind: 'statement', priority: 1 },
     ...cardStatementPayments(document).filter(card => card.amountCents).map(card => ({
@@ -201,9 +204,12 @@ export function compactSchedule(document) {
   function addExpenses(start, end) {
     const inPeriod = entry => entry.day >= start && entry.day <= end;
     const bills = document.bills.filter(inPeriod);
-    const ordinary = bills.filter(bill => !bill.endOfMonth).reduce((total, bill) => total + bill.amountCents, 0);
+    const groupedBills = bills.filter(bill => !bill.endOfMonth).sort((a, b) => a.day - b.day);
+    const checkingItems = (document.checkingItems ?? []).filter(inPeriod).sort((a, b) => a.day - b.day);
+    const ordinary = groupedBills.reduce((total, bill) => total + bill.amountCents, 0);
+    const misc = checkingItems.reduce((total, item) => total + item.amountCents, 0);
     const billDetails = { expenseType: 'bill' };
-    add(end, 'Bills', ordinary ? -ordinary : 0, 'expense', billDetails);
+    add(end, 'Bills', misc - ordinary, 'expense', { ...billDetails, bills: groupedBills, checkingItems });
     bills.filter(bill => bill.endOfMonth).forEach(bill => add(bill.day, bill.name, -bill.amountCents, 'expense', billDetails));
     const reserved = cardEvents.filter(inPeriod).reduce((total, event) => total + event.amountCents, 0);
     const cardDetails = { expenseType: 'card' };
@@ -257,8 +263,8 @@ export function validateDocument(document) {
       validateDay(day, document.month);
     }
   }
-  for (const key of ['paychecks', 'bills', 'charges', 'savingsTransfers']) {
-    if (key === 'savingsTransfers' && document[key] === undefined) continue;
+  for (const key of ['paychecks', 'bills', 'charges', 'savingsTransfers', 'checkingItems']) {
+    if ((key === 'savingsTransfers' || key === 'checkingItems') && document[key] === undefined) continue;
     if (!Array.isArray(document[key])) throw new Error(`Invalid ${key}.`);
     const seen = new Set();
     for (const row of document[key]) {
@@ -267,6 +273,10 @@ export function validateDocument(document) {
       if (key === 'savingsTransfers') {
         validateDay(row.day, document.month);
         if (!row.amountCents) throw new Error('Enter a nonzero savings transfer.');
+      }
+      else if (key === 'checkingItems') {
+        validateDay(row.day, document.month);
+        if (!row.amountCents || typeof row.name !== 'string' || !row.name.trim()) throw new Error('Invalid checking item.');
       }
       else if (key !== 'charges') { validateDay(row.day, document.month); if (row.amountCents < 0 || !String(row.name).trim()) throw new Error('Invalid bill or paycheck.'); }
       else {

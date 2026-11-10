@@ -12,9 +12,11 @@ const headerSizeObserver = new ResizeObserver(([{ target }]) => {
 });
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 let selectedMonth = currentMonth();
+const scheduleSectionOverrides = new Map();
+let scheduleSectionDateKey = '';
 const cardTabs = ['capone', 'amex'].map(id => CARDS.find(card => card.id === id));
 let activeCard = cardTabs[0].id;
-let cardTouchStart = null;
+let rowTouchStart = null;
 let knownVendors = [];
 let budget = null, revision = 0, preferences = emptyPreferences(), preferencesRevision = 0;
 let repository = null, activeUser = null, busy = false, dirty = false, error = '', notice = '', loading = true, loadToken = 0;
@@ -33,12 +35,12 @@ function panelAddButton(dialogId, label) {
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
   </button>`;
 }
-function optionList(selected, compact = false) {
-  const options = [['', 'Uncategorized'], ...Object.entries(CC_CATEGORY_CODES)];
-  if (selected && !CATEGORIES.includes(selected)) options.push(['', selected]);
-  return options.map(([code, category]) => {
-    const label = code || compact ? (code || '—') + ' · ' + category : category;
-    return `<option value="${esc(category)}" ${selected === category ? 'selected' : ''}>${esc(label)}</option>`;
+function optionList(selected = '') {
+  const placeholder = `<option value="" disabled hidden ${!selected || selected === 'Uncategorized' ? 'selected' : ''}>—</option>`;
+  const options = Object.entries(CC_CATEGORY_CODES);
+  if (selected && !CATEGORIES.includes(selected)) options.push(['—', selected]);
+  return placeholder + options.map(([code, category]) => {
+    return `<option value="${esc(category)}" ${selected === category ? 'selected' : ''}>${esc(code + ' · ' + category)}</option>`;
   }).join('');
 }
 function rememberVendors(charges) {
@@ -52,7 +54,10 @@ function rememberVendors(charges) {
   }
   const names = new Map();
   for (const entry of [...stored, ...knownVendors, ...charges.map(charge => charge.vendor)]) {
-    const name = typeof entry === 'string' ? entry.trim() : '';
+    if (typeof entry !== 'string') continue;
+    let name = entry;
+    while (/\([^()]*\)/.test(name)) name = name.replace(/\([^()]*\)/g, ' ');
+    name = name.replace(/\s+/g, ' ').trim();
     if (name && !names.has(name.toLowerCase())) names.set(name.toLowerCase(), name);
   }
   knownVendors = [...names.values()].sort((a, b) => a.localeCompare(b));
@@ -80,6 +85,7 @@ function scheduleItemDialogMarkup(lastDay) {
     <div class="schedule-item-choices" data-schedule-item-view="choice">
       <button type="button" data-action="choose-schedule-item" data-item="income">+ Income</button>
       <button type="button" data-action="choose-schedule-item" data-item="savings">+ Savings</button>
+      <button type="button" data-action="open-item-dialog" aria-controls="bill-item-dialog" data-checking-view="misc">+ Misc checking</button>
     </div>
     <form id="add-pay" class="inline-form schedule-item-form" data-schedule-item-view="income" hidden>
       <label>Name<input name="name" required maxlength="80" placeholder="Income name"></label>
@@ -88,10 +94,10 @@ function scheduleItemDialogMarkup(lastDay) {
       ${actions('Add income')}
     </form>
     <form id="add-savings" class="inline-form schedule-item-form" data-schedule-item-view="savings" hidden>
-      <label>Type<select name="direction"><option value="to-savings">Transfer to savings</option><option value="from-savings">Withdraw from savings</option></select></label>
       <label>Date<input name="date" type="date" ${dateLimits} required></label>
-      <label>Amount ($)<input name="amount" inputmode="decimal" placeholder="0.00" required></label>
-      ${actions('Add transfer')}
+      <label>Amount ($)<input name="amount" placeholder="+100 or -100" aria-describedby="savings-amount-hint" required></label>
+      <p class="hint savings-amount-hint" id="savings-amount-hint">+ from savings · − to savings</p>
+      ${actions('Add savings')}
     </form>
   </dialog>`;
 }
@@ -99,15 +105,36 @@ function scheduleMarkup() {
   const monthNumber = Number(selectedMonth.slice(5));
   const lastDay = daysInMonth(selectedMonth);
   const schedule = compactSchedule(budget);
+  const [month, day, year] = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(new Date()).split('/');
+  const dateKey = selectedMonth + '/' + year + month + day;
+  if (scheduleSectionDateKey !== dateKey) {
+    scheduleSectionOverrides.clear();
+    scheduleSectionDateKey = dateKey;
+  }
+  const today = selectedMonth === year + '-' + month ? Number(day) : 0;
+  let sectionStart = 1;
+  let sectionRows = [];
+  const rowGroups = [];
   const scheduledBills = schedule.reduce((total, row) =>
     row.expenseType === 'bill' ? total - row.amountCents : total, 0);
   const checkingBills = budget.bills.reduce((total, bill) => total + bill.amountCents, 0);
-  const billsMatch = scheduledBills === checkingBills;
+  const checkingItems = budget.checkingItems ?? [];
+  const miscTotal = checkingItems.reduce((total, item) => total + item.amountCents, 0);
+  const checkingTotal = checkingBills - miscTotal;
+  const billsMatch = scheduledBills === checkingTotal;
+  const checkingLabel = checkingItems.length ? 'Checking bills + MISC' : 'Checking bills';
   const billDialogs = [];
   let firstBillDay = 1;
   const hasBothPayTypes = ['C pay', 'A pay'].every(name => budget.paychecks.some(pay => pay.name === name));
-  const rows = schedule.map((row, index) => {
-    const label = row.kind === 'opening' ? 'Checking Start' : row.label;
+  schedule.forEach((row, index) => {
+    let label = row.label;
+    if (row.kind === 'opening') label = 'BOA (x Mort/Fees)';
+    if (row.kind === 'balance' && /^Checking balance$/i.test(label)) label = 'BOA Balance';
+    if (row.kind === 'savings') label = 'Savings';
+    label = label.replace(/(^|[\s(/·-])(\p{L})/gu, (_, prefix, letter) => prefix + letter.toUpperCase());
+    const fullLabel = row.kind === 'opening' ? 'BOA after mortgage/fees' : label;
     const balanceClass = row.kind === 'opening' || row.kind === 'balance' ? 'schedule-balance' : '';
     const rowClass = index === schedule.length - 1 ? 'schedule-ending' : balanceClass;
     const rowType = row.expenseType ?? row.kind;
@@ -126,10 +153,12 @@ function scheduleMarkup() {
     const isNegative = row.amountCents < 0;
     const currency = money(Math.abs(row.amountCents));
     const formattedAmount = isNegative ? `(${currency})` : currency;
-    const alignedAmount = `${isNegative ? '(' : ''}${currency.slice(0, -2)}<span class="schedule-amount-cents">${currency.slice(-2)}</span><span class="schedule-amount-suffix">${isNegative ? ')' : ''}</span>`;
+    const prefix = row.kind === 'savings' ? (isNegative ? '−' : '+') : (isNegative ? '(' : '');
+    const suffix = isNegative && row.kind !== 'savings' ? ')' : '';
+    const alignedAmount = `${prefix}${currency.slice(0, -2)}<span class="schedule-amount-cents">${currency.slice(-2)}</span><span class="schedule-amount-suffix">${suffix}</span>`;
     let displayedAmount = alignedAmount;
     if (amountName) {
-      const amountLabel = row.kind === 'etsy' ? `${date} ${label}` : label;
+      const amountLabel = row.kind === 'etsy' ? `${date} ${label}` : fullLabel;
       displayedAmount = `<span class="schedule-view-value">${displayedAmount}</span>
         <input class="schedule-edit-controls schedule-amount-input" name="${amountName}" aria-label="${esc(amountLabel)} amount in dollars" inputmode="decimal" value="${amount(row.amountCents)}" ${row.kind === 'etsy' ? '' : 'required'}>`;
     }
@@ -138,6 +167,14 @@ function scheduleMarkup() {
       const bills = row.bills ?? budget.bills.filter(bill =>
         !bill.endOfMonth && bill.day >= firstBillDay && bill.day <= row.day
       ).sort((a, b) => a.day - b.day);
+      const miscItems = row.checkingItems ?? [];
+      const miscBreakdown = miscItems.length ? `<h4>MISC</h4>
+        <ul class="schedule-bill-breakdown">${miscItems.map(item => `<li>
+          <span>${monthNumber}/${item.day}</span>
+          <span>${esc(item.name)}</span>
+          <span class="numeric">${item.amountCents > 0 ? '+' : ''}${money(item.amountCents)}</span>
+        </li>`).join('')}</ul>` : '';
+      const totalLabel = miscItems.length ? (row.amountCents > 0 ? 'Net inflow' : row.amountCents < 0 ? 'Net outflow' : 'Net total') : 'Total';
       firstBillDay = row.day + 1;
       const dialogId = 'schedule-bills-' + index;
       displayedAmount = `<button type="button" class="schedule-bill-trigger" data-action="open-bill-breakdown"
@@ -147,32 +184,57 @@ function scheduleMarkup() {
           <h3 id="${dialogId}-title">Bills through ${date}</h3>
           <button type="button" data-action="close-item-dialog" aria-label="Close bill details">×</button>
         </div>
+        ${miscItems.length ? '<h4>Bills</h4>' : ''}
         ${bills.length ? `<ul class="schedule-bill-breakdown">${bills.map(bill => `<li>
           <span>${monthNumber}/${bill.day}</span>
           <span>${esc(bill.name)}</span>
           <span class="numeric">${money(bill.amountCents)}</span>
         </li>`).join('')}</ul>` : '<p class="hint">No bills in this group.</p>'}
-        <p class="numeric"><strong>Total ${money(Math.abs(row.amountCents))}</strong></p>
+        ${miscBreakdown}
+        <p class="numeric"><strong>${totalLabel} ${money(Math.abs(row.amountCents))}</strong></p>
       </dialog>`);
     }
-    return `<tr class="${rowClass} schedule-type-${rowType}">
+    const sectionId = 'schedule-section-' + row.day;
+    const checkpoint = row.kind === 'balance' && row.day !== lastDay && sectionRows.length > 0;
+    const expanded = scheduleSectionOverrides.get(sectionId) ?? (today >= sectionStart && today <= row.day);
+    const description = `<span class="schedule-description" title="${esc(fullLabel)}">${esc(label)}</span>`;
+    const rowMarkup = `<tr class="${rowClass} schedule-type-${rowType}${checkpoint ? ' schedule-checkpoint' : ''}">
       <td class="schedule-date">${date}</td>
-      <th scope="row"><span class="schedule-description" title="${esc(label)}">${esc(label)}</span></th>
+      <th scope="row">${checkpoint ? `
+        <button type="button" class="schedule-section-toggle" data-action="toggle-schedule-section"
+          aria-controls="${sectionId}" aria-expanded="${expanded}"
+          aria-label="${esc(label)}, ${date}, ${esc(formattedAmount)}">${description}<span class="schedule-section-chevron" aria-hidden="true"></span></button>
+        <span class="schedule-edit-controls">${esc(label)}</span>` : description}</th>
       <td class="numeric ${amountClass}">${displayedAmount}</td>
     </tr>`;
-  }).join('');
+    if (row.kind === 'opening') {
+      rowGroups.push(`<tbody>${rowMarkup}</tbody>`);
+    } else if (row.kind === 'balance') {
+      if (checkpoint) {
+        rowGroups.push(`<tbody id="${sectionId}" class="schedule-section" ${expanded ? '' : 'data-collapsed'}>${sectionRows.join('')}</tbody>`);
+      } else if (sectionRows.length) {
+        rowGroups.push(`<tbody>${sectionRows.join('')}</tbody>`);
+      }
+      rowGroups.push(`<tbody>${rowMarkup}</tbody>`);
+      sectionRows = [];
+      sectionStart = row.day + 1;
+    } else {
+      sectionRows.push(rowMarkup);
+    }
+  });
+  if (sectionRows.length) rowGroups.push(`<tbody>${sectionRows.join('')}</tbody>`);
   const lastDate = `${selectedMonth}-${lastDay}`;
   const savingsEditors = (budget.savingsTransfers ?? []).map((transfer, index) => {
     const date = `${selectedMonth}-${String(transfer.day).padStart(2, '0')}`;
     return `<div class="schedule-savings-transfer" data-savings-editor>
       <div class="schedule-savings-heading">
-        <strong>${transfer.amountCents < 0 ? 'To savings' : 'From savings'}</strong>
+        <strong>Savings</strong>
         <button type="button" data-action="toggle-savings-removal">Remove</button>
         <input type="checkbox" name="remove-savings-${index}" hidden>
       </div>
-      <fieldset class="schedule-savings-fields" aria-label="Savings transfer details">
+      <fieldset class="schedule-savings-fields" aria-label="Savings details">
         <label>Date<input name="savings-date-${index}" type="date" min="${selectedMonth}-01" max="${lastDate}" value="${date}" required></label>
-        <label>Amount ($)<input name="savings-amount-${index}" inputmode="decimal" value="${amount(Math.abs(transfer.amountCents))}" required></label>
+        <label>Amount ($)<input name="savings-amount-${index}" value="${transfer.amountCents > 0 ? '+' : ''}${amount(transfer.amountCents)}" aria-describedby="edit-savings-amount-hint" required></label>
       </fieldset>
     </div>`;
   }).join('');
@@ -193,26 +255,34 @@ function scheduleMarkup() {
       <thead>
         <tr><th scope="col">Date</th><th scope="col">Description</th><th scope="col" class="numeric">Amount</th></tr>
       </thead>
-      <tbody>
-        ${rows}
-      </tbody>
+      ${rowGroups.join('')}
     </table>
     <p class="schedule-bill-check${billsMatch ? '' : ' is-mismatch'}">
       ${billsMatch
-        ? `<span aria-hidden="true">✓</span> Checking bills match · ${money(checkingBills)}`
-        : `Bills differ · ${money(scheduledBills)} scheduled / ${money(checkingBills)} in Checking bills`}
+        ? `<span aria-hidden="true">✓</span> ${checkingLabel} match · ${money(checkingTotal)}`
+        : `${checkingLabel} differ · ${money(scheduledBills)} scheduled / ${money(checkingTotal)} in Checking bills`}
     </p>
-    ${savingsEditors ? `<section class="schedule-edit-controls schedule-savings-editor" aria-label="Edit savings transfers">
-      <h3>Savings transfers</h3>
+    ${savingsEditors ? `<section class="schedule-edit-controls schedule-savings-editor" aria-label="Edit savings">
+      <h3>Savings</h3>
+      <p class="hint savings-amount-hint" id="edit-savings-amount-hint">+ from savings · − to savings</p>
       ${savingsEditors}
     </section>` : ''}
     </form>
     ${billDialogs.join('')}
     ${scheduleItemDialogMarkup(lastDay)}
+    <details class="schedule-month-options"><summary>Month options</summary>
+      <div class="footer-actions">
+        <button data-action="defaults" ${busy || dirty || budget.closed ? 'disabled' : ''}>Use bills & paychecks as future defaults</button>
+        <button data-action="export" ${busy ? 'disabled' : ''}>Export this month</button>
+        <button data-action="close" ${busy || dirty ? 'disabled' : ''}>${budget.closed ? 'Reopen month' : 'Close month'}</button>
+      </div>
+      <p class="hint">Future defaults apply to months you have not opened yet.</p>
+    </details>
   </section>`;
 }
-function cardChargeTable(charges, scope) {
+function cardChargeTable(charges, scope, fullActivity = false) {
   if (!charges.length) return '<p class="hint">No card activity entered for this month.</p>';
+  const editable = !fullActivity && !budget.closed;
   const rows = sortedCharges(charges).map((charge, index, orderedCharges) => {
     const key = esc(charge.id);
     const vendor = esc(charge.vendor);
@@ -224,50 +294,70 @@ function cardChargeTable(charges, scope) {
       charge.important === true ? 'charge-important' : '',
       charge.amountCents < 0 ? 'charge-refund' : '',
     ].filter(Boolean).join(' ');
-    const edit = budget.closed ? [] : [
-      `<div class="charge-code-edit">
-        <select name="category-${key}" data-category-code aria-label="Category code for ${vendor}">${optionList(charge.category, true)}</select>
-        <label class="charge-important-toggle" title="Important"><input type="checkbox" name="important-${key}" aria-label="Mark ${vendor} important" ${charge.important === true ? 'checked' : ''}><span aria-hidden="true">★</span></label>
-      </div>`,
+    const edit = editable ? [
+      `<select class="charge-code-edit" name="category-${key}" data-category-code aria-label="Category code for ${vendor}">${optionList(charge.category)}</select>`,
       `<input name="vendor-${key}" value="${vendor}" list="card-vendor-history" maxlength="160" aria-label="Vendor for ${vendor}">`,
       `<input name="posted-${key}" value="${esc(date)}" placeholder="Pending" maxlength="10" aria-label="Date for ${vendor}">`,
       `<input name="amount-${key}" value="${amount(charge.amountCents)}" inputmode="decimal" aria-label="Amount for ${vendor}">`,
-    ];
+    ] : [];
     const cell = (value, index) => `<span class="charge-list-view">${value}</span>${edit[index] ? `<div class="charge-list-edit">${edit[index]}</div>` : ''}`;
+    const vendorCell = fullActivity ? cell(vendor, 1) : `
+      <button type="button" class="charge-list-view charge-vendor-button" data-action="show-charge-vendor"
+        aria-label="Show full vendor name: ${vendor}" popovertarget="charge-vendor-details">${vendor}</button>
+      ${edit[1] ? `<div class="charge-list-edit">${edit[1]}</div>` : ''}`;
     return `<tr data-charge-id="${key}" data-charge-code="${code}" class="${rowClass}">
+      ${editable ? `<td class="charge-list-edit charge-important-cell">
+        <label class="charge-important-toggle" title="Important"><input type="checkbox" name="important-${key}" aria-label="Mark ${vendor} important" ${charge.important === true ? 'checked' : ''}><span aria-hidden="true">★</span></label>
+      </td>` : ''}
       <td><span class="charge-list-view" title="${esc(charge.category)}">${code}</span>${edit[0] ? `<div class="charge-list-edit">${edit[0]}</div>` : ''}</td>
-      <td title="${vendor}">${cell(vendor, 1)}</td>
+      <td class="charge-vendor-cell">${vendorCell}</td>
       <td class="numeric">${cell(esc(money(charge.amountCents)), 3)}</td>
-      <td>${cell(esc(date || 'Pending'), 2)}</td>
-      ${budget.closed ? '' : `<td class="charge-list-edit charge-remove-cell"><button class="charge-remove-button" type="button" data-action="stage-charge-removal" aria-label="Remove ${vendor}">−</button></td>`}
+      <td class="charge-date-cell">${cell(esc(date || 'Pending'), 2)}
+        ${editable ? `<button type="button" class="charge-swipe-delete" data-swipe-delete data-action="confirm-charge-removal"
+          aria-label="Delete ${vendor}" aria-haspopup="dialog" hidden ${disabled()}>Delete</button>` : ''}
+      </td>
     </tr>`;
   }).join('');
+  const table = `<table class="charge-list-table">
+    <thead><tr>${editable ? '<th scope="col" class="charge-list-edit charge-important-cell" aria-label="Important">★</th>' : ''}<th scope="col">Code</th><th scope="col" class="charge-vendor-cell">Vendor</th><th scope="col" class="numeric">Amt</th><th scope="col">Date</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+  if (fullActivity) return table;
   return `<form class="charge-list" data-charge-scope="${scope}">
-    ${budget.closed ? '' : `<div class="charge-list-actions">
-      ${scope ? panelEditButton('edit-charges', 'Edit card charges', 'charge-list-view') : `<button class="charge-list-view" type="button" data-action="edit-charges" ${disabled()}>Edit charges</button>`}
-      <div class="charge-list-edit">
-        <button class="primary" type="submit" ${disabled()}>Save changes</button>
-        <button type="button" data-action="cancel-charge-edits" ${disabled()}>Cancel</button>
-      </div>
-    </div>`}
-    <div class="charge-list-scroll" role="region" aria-label="Saved charges" tabindex="0"><table class="charge-list-table">
-      <thead><tr><th scope="col">Code</th><th scope="col">Vendor</th><th scope="col" class="numeric">Amt</th><th scope="col">Date</th>${budget.closed ? '' : '<th scope="col" class="charge-list-edit charge-remove-cell" aria-label="Remove"></th>'}</tr></thead>
-      <tbody>${rows}</tbody>
-    </table></div>
+    ${editable ? (scope ? panelEditButton('edit-charges', 'Edit card charges', 'charge-list-view') : `<button class="charge-list-view" type="button" data-action="edit-charges" ${disabled()}>Edit charges</button>`) : ''}
+    <div class="charge-list-scroll" role="region" aria-label="Saved charges" tabindex="0">${table}</div>
     <div role="alert" class="schedule-editor-error"></div>
+    ${editable ? `<div class="charge-list-actions charge-list-edit">
+      <button type="button" data-action="cancel-charge-edits" ${disabled()}>Cancel</button>
+      <button class="primary" type="submit" ${disabled()}>Save changes</button>
+    </div>` : ''}
   </form>`;
+}
+function cardCycleDates(card) {
+  const cycle = cardStatementCycle(selectedMonth, card.dueDay);
+  return displayDate(cycle.from) + ' to ' + displayDate(cycle.until);
 }
 function cardMarkup() {
   const payments = cardStatementPayments(budget);
   const unassigned = budget.charges.filter(charge => !charge.card);
   const draftEditor = `<div class="charge-draft-editor">
-    <label class="charge-draft-vendor">Vendor<input name="vendor" list="card-vendor-history" autocomplete="off" maxlength="160" ${disabled()}></label>
+    <label class="charge-draft-vendor">Vendor<input name="vendor" list="card-vendor-history" placeholder="Vendor name" autocomplete="off" maxlength="160" ${disabled()}></label>
     <label>Amount ($)<input name="amount" inputmode="decimal" placeholder="0.00" ${disabled()}></label>
-    <label>Code<select name="category" ${disabled()}>${optionList('Uncategorized')}</select></label>
-    <label class="checkbox-label"><input type="checkbox" name="important" ${disabled()}>Important</label>
+    <label>Code
+      <span class="charge-draft-code">
+        <select name="category" ${disabled()}>${optionList()}</select>
+        <span class="charge-draft-code-value" aria-hidden="true">—</span>
+      </span>
+    </label>
+    <div class="charge-draft-flag">
+      <span>Flag</span>
+      <label class="charge-important-toggle">
+        <input type="checkbox" name="important" aria-label="Important" ${disabled()}><span aria-hidden="true">★</span>
+      </label>
+    </div>
     <div class="charge-draft-actions">
       <button type="button" data-action="remove-charge-draft" hidden>Remove charge</button>
-      <button type="button" data-action="queue-charge" ${disabled()}>Add to batch</button>
+      <button type="button" data-action="queue-charge" ${disabled()}>+ Add next</button>
     </div>
   </div>`;
   const tabs = cardTabs.map(card => {
@@ -277,7 +367,6 @@ function cardMarkup() {
       data-action="select-card" data-card="${card.id}">${card.name}</button>`;
   }).join('');
   const panels = cardTabs.map(card => {
-    const cycle = cardStatementCycle(selectedMonth, card.dueDay);
     const charges = budget.charges.filter(charge => charge.card === card.id);
     const posted = charges.reduce((sum, charge) => sum + (charge.postedDate ? charge.amountCents : 0), 0);
     const pending = charges.reduce((sum, charge) => sum + (charge.postedDate ? 0 : charge.amountCents), 0);
@@ -285,7 +374,7 @@ function cardMarkup() {
     return `<div class="card-tab-panel" id="card-panel-${card.id}" role="tabpanel"
       aria-labelledby="card-tab-${card.id}" data-card-panel="${card.id}" ${card.id === activeCard ? '' : 'hidden'}>
       <div class="card-cycle">
-        <p class="hint">${card.name} statement cycle · ${displayDate(cycle.from)} to ${displayDate(cycle.until)}</p>
+        <p class="hint">${card.name} statement cycle · ${cardCycleDates(card)}</p>
         <p class="hint">${money(payment.amountCents)} due <time datetime="${selectedMonth}-${String(card.dueDay).padStart(2, '0')}">${shortMonth(selectedMonth)} ${card.dueDay}</time></p>
       </div>
       <div class="card-totals">
@@ -294,29 +383,55 @@ function cardMarkup() {
         <div>Total<strong>${money(posted + pending)}</strong></div>
       </div>
       ${cardChargeTable(charges, card.id)}
-      ${budget.closed ? '' : `<dialog id="charge-dialog-${card.id}" class="charge-dialog" aria-labelledby="charge-dialog-title-${card.id}">
-        <h3 id="charge-dialog-title-${card.id}">Add ${card.name} charges</h3>
+      ${budget.closed ? '' : `<dialog id="charge-dialog-${card.id}" class="charge-dialog charge-entry-dialog" aria-labelledby="charge-dialog-title-${card.id}">
+        <div class="schedule-item-heading charge-entry-heading">
+          <div><div class="hint">${card.name}</div><h3 id="charge-dialog-title-${card.id}">Add charges</h3></div>
+          <button type="button" data-action="close-charge-dialog" aria-label="Close add charges">×</button>
+        </div>
         <form id="add-charges-${card.id}" class="charge-batch-form">
-          <label class="charge-batch-date">Date posted
-            <input name="posted" placeholder="MM/DD or Pending" maxlength="10" autocomplete="off" ${disabled()}>
-          </label>
-          <p class="hint">This date applies to all charges in this batch. Leave it blank for pending charges.</p>
-          ${draftEditor}
-          <div class="charge-draft-list"></div>
-          <p role="status"><strong class="charge-batch-total">Batch total · 0 charges · ${money(0)}</strong></p>
-          <div class="charge-batch-actions">
-            <button type="button" data-action="close-charge-dialog">Close</button>
-            <button type="submit" class="primary" ${disabled()}>Save all charges</button>
+          <div class="charge-batch-date">
+            <label>Date posted <input name="posted" placeholder="MM/DD" maxlength="10" autocomplete="off" ${disabled()}></label>
+            <button type="button" data-action="toggle-charge-pending" aria-pressed="false" ${disabled()}>Pending</button>
           </div>
-          <div role="alert" class="schedule-editor-error"></div>
+          ${draftEditor}
+          <div class="charge-draft-list" role="group" aria-label="Charges in this batch"></div>
+          <div class="charge-batch-actions">
+            <div role="alert" class="schedule-editor-error"></div>
+            <button type="submit" class="primary" disabled>Save charges</button>
+          </div>
         </form>
       </dialog>`}
     </div>`;
   }).join('');
   return `<section class="panel card-panel">
     <div class="panel-heading card-panel-heading"><h2>CREDIT CARD ACTIVITY</h2></div>
+    <button type="button" class="card-month-activity-button" data-action="open-card-month-activity"
+      aria-label="View full monthly activity for the selected card" aria-haspopup="dialog" aria-controls="card-month-activity">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M6 3h8l4 4v14H6zM14 3v5h4M9 12h6M9 16h6"/>
+      </svg>
+    </button>
     <div class="card-tabs" role="tablist" aria-label="Credit cards">${tabs}</div>
     ${panels}
+    <dialog id="card-month-activity" class="charge-dialog card-month-activity" aria-labelledby="card-month-activity-title">
+      <div class="schedule-item-heading card-month-activity-heading">
+        <div class="card-month-activity-labels">
+          <h3 id="card-month-activity-title"></h3>
+          <p class="hint card-month-activity-cycle" data-activity-cycle></p>
+        </div>
+        <button type="button" data-action="close-charge-dialog" aria-label="Close full card activity">×</button>
+      </div>
+      <div class="card-month-activity-list"></div>
+    </dialog>
+    <div id="charge-vendor-details" class="charge-vendor-popover" popover="auto"></div>
+    <dialog id="charge-delete-dialog" class="charge-dialog" aria-labelledby="charge-delete-title" aria-describedby="charge-delete-details">
+      <h3 id="charge-delete-title">Delete this charge?</h3>
+      <p id="charge-delete-details" class="charge-vendor-name"></p>
+      <div class="charge-delete-actions">
+        <button type="button" data-action="close-charge-dialog" autofocus>Cancel</button>
+        <button type="button" class="charge-swipe-delete" data-action="delete-saved-charge">Delete</button>
+      </div>
+    </dialog>
     <datalist id="card-vendor-history">${knownVendors.map(name => `<option value="${esc(name)}"></option>`).join('')}</datalist>
     ${unassigned.length ? `<details class="statement"><summary>Unassigned charges (${unassigned.length})</summary>${cardChargeTable(unassigned, '')}</details>` : ''}
     ${budget.closed ? '' : `<button type="button" class="primary charge-add-button" data-action="open-charge-dialog" aria-haspopup="dialog" ${disabled()}>+ Add charges</button>`}
@@ -324,58 +439,100 @@ function cardMarkup() {
 }
 function billsMarkup() {
   const lastDay = daysInMonth(selectedMonth);
-  const debitDayOptions = Array.from({ length: lastDay }, (_, index) => {
+  const debitDayOptions = (selected = '1') => Array.from({ length: lastDay }, (_, index) => {
     const day = index + 1;
-    return `<option value="${day}">${day}</option>`;
-  }).join('');
+    return `<option value="${day}" ${selected === String(day) ? 'selected' : ''}>${day}</option>`;
+  }).join('') + `<option value="eom" ${selected === 'eom' ? 'selected' : ''}>EOM</option>`;
   const bills = budget.bills.slice().sort((a, b) => a.day - b.day);
   const subtotal = bills.reduce((total, bill) => total + bill.amountCents, 0);
   const debitDate = bill => `${Number(selectedMonth.slice(5))}/${bill.day}`;
+  const rowName = name => budget.closed ? `<span class="bill-summary-name" title="${name}">${name}</span>` :
+    `<button type="button" class="bill-summary-name checking-row-toggle" data-action="toggle-checking-removal"
+      title="${name}" aria-label="Removal options for ${name}" aria-expanded="false" ${disabled()}>${name}</button>`;
+  const removeButton = name => budget.closed ? '' : `<button type="button" class="charge-swipe-delete checking-item-delete" data-swipe-delete
+    data-action="delete-checking-row" aria-label="Remove ${name}" ${disabled()} hidden>Remove</button>`;
   const rows = bills.map(bill => {
     const key = esc(bill.id);
     const name = esc(bill.name);
     return `<li data-bill-id="${key}">
       <div class="bill-summary">
         <span class="bill-summary-date">${bill.endOfMonth ? '<abbr title="End of month">EOM</abbr>' : debitDate(bill)}</span>
-        <span class="bill-summary-name" title="${name}">${name}</span>
+        ${rowName(name)}
         <span class="bill-summary-amount">${money(bill.amountCents)}</span>
         <label class="bill-paid-field"><input type="checkbox" id="bill-paid-${key}" data-kind="bill-paid" data-id="${key}" aria-label="Mark ${name} paid" ${bill.paid ? 'checked' : ''} ${disabled()}></label>
       </div>
+      ${removeButton(name)}
       ${budget.closed ? '' : `<div class="bill-fields">
-        <input type="number" name="day-${key}" min="1" max="${lastDay}" value="${bill.day}" aria-label="Debit day for ${name}" ${disabled()}>
+        <select name="day-${key}" aria-label="Debit day for ${name}" ${disabled()}>${debitDayOptions(bill.endOfMonth ? 'eom' : String(bill.day))}</select>
         <input name="name-${key}" value="${name}" maxlength="100" aria-label="Vendor for ${name}" ${disabled()}>
         <input name="amount-${key}" inputmode="decimal" value="${amount(bill.amountCents)}" aria-label="Amount for ${name}" ${disabled()}>
         <label class="bill-paid-field"><input type="checkbox" name="paid-${key}" aria-label="Mark ${name} paid" ${bill.paid ? 'checked' : ''} ${disabled()}></label>
-        <button type="button" class="bill-remove-button" data-action="stage-bill-removal" aria-label="Remove ${name}" ${disabled()}>−</button>
       </div>`}
     </li>`;
   }).join('');
+  const checkingRows = (budget.checkingItems ?? []).slice().sort((a, b) => a.day - b.day).map(item => {
+    const key = esc(item.id);
+    const name = esc(item.name);
+    return `<li data-checking-id="${key}">
+      <div class="bill-summary checking-item-summary">
+        <span class="bill-summary-date">${debitDate(item)}</span>
+        ${rowName(name)}
+        <span class="bill-summary-amount">${item.amountCents > 0 ? '+' : ''}${money(item.amountCents)}</span>
+      </div>
+      ${removeButton(name)}
+      ${budget.closed ? '' : `<div class="bill-fields checking-item-fields">
+        <input type="number" name="misc-day-${key}" min="1" max="${lastDay}" value="${item.day}" aria-label="Day for ${name}" ${disabled()}>
+        <input name="misc-name-${key}" value="${name}" maxlength="100" aria-label="Description for ${name}" ${disabled()}>
+        <input name="misc-amount-${key}" value="${amount(item.amountCents)}" aria-label="Signed amount for ${name}" ${disabled()}>
+      </div>`}
+    </li>`;
+  }).join('');
+  const canEdit = !budget.closed && (rows || checkingRows);
   return `<section class="panel bills-panel">
     <form id="edit-bills" novalidate>
       <div class="panel-heading">
         <div><h2>Checking bills</h2><p class="hint">${bills.filter(bill => bill.paid).length} of ${bills.length} paid · ${money(subtotal)} total · ${money(totals(budget).remainingBills)} still to clear</p></div>
-        ${!budget.closed && rows ? panelEditButton('edit-bills', 'Edit checking bills', 'bill-edit-button') : ''}
+        ${canEdit ? panelEditButton('edit-bills', 'Edit checking bills', 'bill-edit-button') : ''}
       </div>
       ${rows ? `<ul class="bill-list">${rows}</ul>` : '<p class="hint">No bills for this month.</p>'}
+      ${checkingRows ? `<section class="checking-items" aria-label="Misc checking">
+        <h3>MISC</h3>
+        <ul class="bill-list">${checkingRows}</ul>
+      </section>` : ''}
       <div role="alert" class="schedule-editor-error"></div>
-      ${!budget.closed && rows ? `<div class="bill-edit-actions">
+      ${canEdit ? `<div class="bill-edit-actions">
         <button type="button" data-action="cancel-bill-edits" ${disabled()}>Cancel</button>
         <button type="submit" class="primary" ${disabled()}>Save changes</button>
       </div>` : ''}
     </form>
-    ${budget.closed ? '' : `${panelAddButton('bill-item-dialog', 'Add a bill')}
+    ${budget.closed ? '' : `${panelAddButton('bill-item-dialog', 'Add a checking entry')}
     <dialog id="bill-item-dialog" class="schedule-item-dialog" aria-labelledby="bill-item-title">
       <div class="schedule-item-heading">
-        <h3 id="bill-item-title">Add a bill</h3>
+        <h3 id="bill-item-title">Add to checking</h3>
         <button type="button" data-action="close-item-dialog" aria-label="Close bill dialog">×</button>
       </div>
-      <form id="add-bill" class="inline-form schedule-item-form">
+      <div class="schedule-item-choices" data-schedule-item-view="checking">
+        <button type="button" data-action="choose-schedule-item" data-item="bill">+ Bill</button>
+        <button type="button" data-action="choose-schedule-item" data-item="misc">+ Misc checking</button>
+      </div>
+      <form id="add-bill" class="inline-form schedule-item-form" data-schedule-item-view="bill" hidden>
         <label>Bill name<input name="name" maxlength="100" placeholder="Mortgage, water…" required ${disabled()}></label>
-        <label>Debit day<select name="day" ${disabled()}>${debitDayOptions}<option value="eom">End of month</option></select></label>
+        <label>Debit day<select name="day" ${disabled()}>${debitDayOptions()}</select></label>
         <label>Amount ($)<input name="amount" inputmode="decimal" placeholder="0.00" required ${disabled()}></label>
         <div class="schedule-item-actions">
           <button type="button" data-action="close-item-dialog">Cancel</button>
           <button class="primary" type="submit" ${disabled()}>Add bill</button>
+        </div>
+        <div role="alert" class="schedule-editor-error"></div>
+      </form>
+      <form id="add-checking-item" class="inline-form schedule-item-form" data-schedule-item-view="misc" hidden>
+        <label>Description<input name="name" maxlength="100" placeholder="Venmo, reimbursement…" required ${disabled()}></label>
+        <label>Date<input name="date" type="date" min="${selectedMonth}-01" max="${selectedMonth}-${lastDay}" required ${disabled()}></label>
+        <label>Amount ($)<input name="amount" placeholder="+100 or -100" aria-describedby="checking-amount-hint" required ${disabled()}></label>
+        <p class="hint savings-amount-hint" id="checking-amount-hint">+ money in · − money out</p>
+        <div class="schedule-item-actions">
+          <button type="button" data-action="close-item-dialog">Cancel</button>
+          <button class="primary" type="submit" ${disabled()}>Add item</button>
         </div>
         <div role="alert" class="schedule-editor-error"></div>
       </form>
@@ -388,7 +545,7 @@ function render() {
   if (!budget) { root.innerHTML = `<main class="auth"><div class="wordmark">m.</div><p>${loading ? 'Opening your month…' : esc(error || 'Could not open your budget.')}</p>${!loading ? '<button data-action="reload">Try again</button>' : ''}</main>`; return; }
   const t = totals(budget);
   const tileScroll = root.querySelector('.workspace')?.scrollLeft ?? 0;
-  root.innerHTML = `<div class="app-shell"><header><div class="topline"><div class="brand">m.</div><div class="account">${supabase ? `<button data-action="sign-out" ${busy || dirty ? 'disabled' : ''}>Sign out</button>` : '<span>Stored on this device</span>'}</div></div>${monthNavigationMarkup(selectedMonth, busy || dirty)}<div class="save-line" role="status">${busy ? 'Saving…' : dirty ? 'Changes need to be saved' : supabase ? 'Saved to your account' : 'Saved on this device'}${notice ? ` · ${esc(notice)}` : ''}</div></header>${error ? `<div class="error-banner" role="alert"><p>${esc(error)}</p><div>${dirty ? '<button data-action="retry">Retry save</button>' : ''}<button data-action="reload">Reload saved version</button></div></div>` : ''}<main class="workspace">${scheduleMarkup()}<div class="ledgers">${cardMarkup()}${billsMarkup()}</div></main><footer><div>${t.lowest < 0 ? '<span class="negative">A scheduled balance falls below zero.</span>' : 'Every scheduled balance stays at or above zero.'}</div><details><summary>Month options</summary><div class="footer-actions"><button data-action="defaults" ${busy || dirty || budget.closed ? 'disabled' : ''}>Use bills & paychecks as future defaults</button><button data-action="export" ${busy ? 'disabled' : ''}>Export this month</button><button data-action="close" ${busy || dirty ? 'disabled' : ''}>${budget.closed ? 'Reopen month' : 'Close month'}</button></div><p class="hint">All edits belong to ${esc(monthLabel(selectedMonth))}. Future defaults only populate months you have not opened yet.</p></details></footer></div>`;
+  root.innerHTML = `<div class="app-shell"><header><div class="topline"><div class="brand">m.</div><div class="account">${supabase ? `<button data-action="sign-out" ${busy || dirty ? 'disabled' : ''}>Sign out</button>` : '<span>Stored on this device</span>'}</div></div>${monthNavigationMarkup(selectedMonth, busy || dirty)}<div class="save-line" role="status">${busy ? 'Saving…' : dirty ? 'Changes need to be saved' : supabase ? 'Saved to your account' : 'Saved on this device'}${notice ? ` · ${esc(notice)}` : ''}</div></header>${error ? `<div class="error-banner" role="alert"><p>${esc(error)}</p><div>${dirty ? '<button data-action="retry">Retry save</button>' : ''}<button data-action="reload">Reload saved version</button></div></div>` : ''}<main class="workspace">${scheduleMarkup()}<div class="ledgers">${cardMarkup()}${billsMarkup()}</div></main><footer><div>${t.lowest < 0 ? '<span class="negative">A scheduled balance falls below zero.</span>' : 'Every scheduled balance stays at or above zero.'}</div></footer></div>`;
   root.querySelector('.workspace').scrollLeft = tileScroll;
   const header = root.querySelector('.app-shell > header');
   root.style.setProperty('--budget-header-height', header.offsetHeight + 'px');
@@ -457,8 +614,9 @@ function scheduleItemDay(date) {
   return validateDay(date.slice(8), selectedMonth);
 }
 function setScheduleItemView(dialog, view) {
-  const title = dialog.querySelector('#schedule-item-title');
-  title.textContent = { choice: 'Add to schedule', income: 'Add income', savings: 'Add savings' }[view];
+  const title = dialog.querySelector('h3');
+  title.textContent = { choice: 'Add to schedule', income: 'Add income', savings: 'Add savings',
+    checking: 'Add to checking', bill: 'Add a bill', misc: 'Add misc checking' }[view];
   for (const panel of dialog.querySelectorAll('[data-schedule-item-view]')) {
     panel.hidden = panel.dataset.scheduleItemView !== view;
   }
@@ -472,12 +630,46 @@ function setSavingsRemoval(editor, removed) {
 function parseCardDate(value) {
   return parsePostedDate(value, selectedMonth.slice(0, 4));
 }
+function signedAmount(value) {
+  const cents = toCents(String(value ?? '').trim().replace(/^\+(?=\d)/, '').replace(/^−/, '-'), true);
+  if (!cents) throw new Error('Enter a nonzero amount.');
+  return cents;
+}
 const queuedCharges = new WeakMap();
+function readChargeDraft(form) {
+  const vendor = form.elements.vendor.value.trim();
+  const amountInput = form.elements.amount.value.trim();
+  const category = form.elements.category.value;
+  const important = form.elements.important.checked;
+  if (!vendor && !amountInput && !category && !important) return null;
+  if (!vendor) throw new Error('Enter a vendor.');
+  const amountCents = toCents(amountInput, true);
+  if (!amountCents) throw new Error('Enter a nonzero amount.');
+  if (!Object.values(CC_CATEGORY_CODES).includes(category)) throw new Error('Choose a category code.');
+  return { vendor, amountCents, category, important };
+}
 function updateChargeTotals(form) {
+  const category = form.elements.category.value;
+  const code = Object.entries(CC_CATEGORY_CODES).find(([, name]) => name === category)?.[0] ?? '—';
+  form.querySelector('.charge-draft-code-value').textContent = code;
   const rows = Array.from(form.querySelectorAll('.charge-draft-item'));
-  const cents = rows.reduce((sum, row) => sum + queuedCharges.get(row).amountCents, 0);
-  const count = rows.length;
-  form.querySelector('.charge-batch-total').textContent = `Batch total · ${count} ${count === 1 ? 'charge' : 'charges'} · ${money(cents)}`;
+  const batch = rows.map(row => queuedCharges.get(row));
+  let incomplete = false;
+  try {
+    const draft = readChargeDraft(form);
+    if (draft) {
+      const index = rows.findIndex(row => row.getAttribute('aria-pressed') === 'true');
+      if (index < 0) batch.push(draft);
+      else batch[index] = draft;
+    }
+  } catch {
+    incomplete = true;
+  }
+  const cents = batch.reduce((sum, charge) => sum + charge.amountCents, 0);
+  const count = batch.length;
+  const save = form.querySelector('[type="submit"]');
+  save.disabled = busy || (!count && !incomplete);
+  save.textContent = count ? `Save ${count} ${count === 1 ? 'charge' : 'charges'} · ${money(cents)}` : 'Save charges';
 }
 function setChargeEditor(form, row = null) {
   const editor = form.querySelector('.charge-draft-editor');
@@ -486,24 +678,20 @@ function setChargeEditor(form, row = null) {
   if (row) row.setAttribute('aria-pressed', 'true');
   form.elements.vendor.value = charge?.vendor ?? '';
   form.elements.amount.value = charge ? amount(charge.amountCents) : '';
-  form.elements.category.value = charge?.category ?? 'Uncategorized';
+  form.elements.category.value = charge?.category ?? '';
   form.elements.important.checked = charge?.important ?? false;
-  editor.querySelector('[data-action="queue-charge"]').textContent = row ? 'Update charge' : 'Add to batch';
+  editor.querySelector('[data-action="queue-charge"]').textContent = row ? 'Update charge' : '+ Add next';
   editor.querySelector('[data-action="remove-charge-draft"]').hidden = !row;
+  updateChargeTotals(form);
 }
 function queueCharge(form, required = false) {
   const message = form.querySelector('.schedule-editor-error');
   message.textContent = '';
-  const vendor = form.elements.vendor.value.trim();
-  const amountInput = form.elements.amount.value.trim();
-  const category = form.elements.category.value;
-  const important = form.elements.important.checked;
   let row = form.querySelector('.charge-draft-item[aria-pressed="true"]');
-  if (!required && !row && !vendor && !amountInput && category === 'Uncategorized' && !important) return true;
   try {
-    if (!vendor) throw new Error('Enter a vendor.');
-    const amountCents = toCents(amountInput, true);
-    if (!amountCents) throw new Error('Enter a nonzero amount.');
+    const draft = readChargeDraft(form);
+    if (!draft && !required && !row) return true;
+    if (!draft) throw new Error('Enter a vendor and amount.');
     if (!row) {
       row = document.createElement('button');
       row.type = 'button';
@@ -512,11 +700,14 @@ function queueCharge(form, required = false) {
       row.setAttribute('aria-pressed', 'false');
       form.querySelector('.charge-draft-list').append(row);
     }
-    const code = Object.entries(CC_CATEGORY_CODES).find(([, name]) => name === category)?.[0];
-    row.textContent = [code, vendor, money(amountCents)].filter(Boolean).join(' · ');
-    row.classList.toggle('charge-important', important);
-    queuedCharges.set(row, { vendor, amountCents, category, important });
-    updateChargeTotals(form);
+    const code = Object.entries(CC_CATEGORY_CODES).find(([, name]) => name === draft.category)?.[0] ?? '—';
+    row.replaceChildren(...[code, draft.vendor + (draft.important ? ' ★' : ''), money(draft.amountCents)].map(value => {
+      const cell = document.createElement('span');
+      cell.textContent = value;
+      return cell;
+    }));
+    row.classList.toggle('charge-important', draft.important);
+    queuedCharges.set(row, draft);
     setChargeEditor(form);
     return true;
   } catch (cause) {
@@ -538,25 +729,61 @@ function selectCard(cardId, focus = false) {
   }
   scrollToLatestCharges();
 }
+function revealRowDelete(row = null) {
+  const openRow = root.querySelector('.swipe-row-open');
+  if (openRow === row) return;
+  if (openRow) {
+    openRow.classList.remove('swipe-row-open');
+    openRow.querySelector('[data-swipe-delete]').hidden = true;
+    openRow.querySelector('.checking-row-toggle')?.setAttribute('aria-expanded', 'false');
+  }
+  const button = row?.querySelector('[data-swipe-delete]:enabled');
+  if (button) {
+    row.classList.add('swipe-row-open');
+    button.hidden = false;
+    row.querySelector('.checking-row-toggle')?.setAttribute('aria-expanded', 'true');
+  }
+}
+document.addEventListener('scroll', () => {
+  root.querySelector('#charge-vendor-details:popover-open')?.hidePopover();
+}, { capture: true, passive: true });
 root.addEventListener('touchstart', event => {
-  cardTouchStart = null;
-  if (window.matchMedia('(max-width: 759px)').matches) return;
-  if (event.touches.length !== 1 || !event.target.closest('[data-card-panel], .card-tabs') ||
-      event.target.closest('input, select, textarea, label, .charge-dialog')) return;
+  rowTouchStart = null;
+  if (event.touches.length !== 1 ||
+      event.target.closest('input, select, textarea, label, .charge-dialog, [data-swipe-delete]')) return;
+  const row = event.target.closest('.charge-list:not(.is-editing) tr[data-charge-id], #edit-bills:not(.is-editing) .bill-list > li');
+  const swipeRow = row?.querySelector('[data-swipe-delete]:enabled') ? row : null;
+  if (!swipeRow && (window.matchMedia('(max-width: 759px)').matches ||
+      !event.target.closest('[data-card-panel], .card-tabs'))) return;
   const { clientX, clientY } = event.touches[0];
-  cardTouchStart = { clientX, clientY };
+  rowTouchStart = { clientX, clientY, row: swipeRow };
 }, { passive: true });
 root.addEventListener('touchend', event => {
-  const start = cardTouchStart;
-  cardTouchStart = null;
+  const start = rowTouchStart;
+  rowTouchStart = null;
   if (!start || event.touches.length || !event.changedTouches.length) return;
   const { clientX, clientY } = event.changedTouches[0];
   const horizontal = clientX - start.clientX;
   if (Math.abs(horizontal) < 55 || Math.abs(horizontal) <= Math.abs(clientY - start.clientY) * 1.5) return;
+  if (start.row) {
+    if (start.row.isConnected) revealRowDelete(horizontal < 0 ? start.row : null);
+    return;
+  }
   selectCard(horizontal < 0 ? cardTabs[1].id : cardTabs[0].id);
 }, { passive: true });
-root.addEventListener('touchcancel', () => { cardTouchStart = null; });
-root.addEventListener('input', event => { event.target.setCustomValidity?.(''); });
+root.addEventListener('touchcancel', () => { rowTouchStart = null; });
+root.addEventListener('input', event => {
+  event.target.setCustomValidity?.('');
+  const form = event.target.form;
+  if (form?.id === 'add-bill' && event.target.name === 'name' && !form.dataset.debitDayChosen) {
+    const endOfMonth = /\b(?:mortgage|hoa)\b|\bhomeowners[’']? association\b/i.test(event.target.value);
+    form.elements.day.value = endOfMonth ? 'eom' : '1';
+  }
+  if (form?.matches('.charge-batch-form')) {
+    form.querySelector('.schedule-editor-error').textContent = '';
+    updateChargeTotals(form);
+  }
+});
 root.addEventListener('keydown', event => {
   const input = event.target;
   if (event.key === 'Enter' && input.matches('.charge-batch-form input')) {
@@ -580,6 +807,7 @@ root.addEventListener('keydown', event => {
       event.preventDefault();
       if (input.value !== category) {
         input.value = category;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
         input.dispatchEvent(new Event('change', { bubbles: true }));
       }
       return;
@@ -596,6 +824,7 @@ connectMonthNavigation(root, async month => {
 });
 root.addEventListener('change', async event => {
   const input = event.target;
+  if (input.form?.id === 'add-bill' && input.name === 'day') input.form.dataset.debitDayChosen = 'true';
   if (input.dataset.kind !== 'bill-paid' || busy || budget?.closed) return;
   try {
     const billId = input.dataset.id;
@@ -617,22 +846,33 @@ root.addEventListener('submit', async event => {
     if (!form.classList.contains('is-editing')) return;
     const message = form.querySelector('.schedule-editor-error');
     message.textContent = '';
-    const removed = new Set(Array.from(form.querySelectorAll('li[data-bill-id][hidden]'), row => row.dataset.billId));
     const lastDay = daysInMonth(selectedMonth);
     try {
-      const bills = budget.bills.filter(bill => !removed.has(bill.id)).map(bill => {
+      const bills = budget.bills.map(bill => {
         try {
           const name = fields.get('name-' + bill.id).trim();
           if (!name) throw new Error('Enter a vendor.');
-          const day = validateDay(fields.get('day-' + bill.id), selectedMonth);
+          const debitDay = fields.get('day-' + bill.id);
+          const endOfMonth = debitDay === 'eom';
+          const day = endOfMonth ? lastDay : validateDay(debitDay, selectedMonth);
           const amountCents = toCents(fields.get('amount-' + bill.id));
           const paid = fields.has('paid-' + bill.id);
-          return { ...bill, name, day, amountCents, paid, endOfMonth: day === lastDay && bill.endOfMonth };
+          return { ...bill, name, day, amountCents, paid, endOfMonth };
         } catch (cause) {
           throw new Error(bill.name + ' · ' + cause.message);
         }
       });
-      await commit(next => { next.bills = bills; });
+      const checkingItems = (budget.checkingItems ?? []).map(item => {
+        const name = fields.get('misc-name-' + item.id).trim();
+        if (!name) throw new Error('Enter a description for ' + item.name + '.');
+        const day = validateDay(fields.get('misc-day-' + item.id), selectedMonth);
+        const amountCents = signedAmount(fields.get('misc-amount-' + item.id));
+        return { ...item, name, day, amountCents };
+      });
+      await commit(next => {
+        next.bills = bills;
+        if (next.checkingItems) next.checkingItems = checkingItems;
+      });
     } catch (cause) {
       message.textContent = cause.message;
     }
@@ -643,13 +883,8 @@ root.addEventListener('submit', async event => {
     const message = form.querySelector('.schedule-editor-error');
     message.textContent = '';
     const updates = new Map();
-    const removed = new Set();
     for (const row of form.querySelectorAll('tr[data-charge-id]')) {
       const key = row.dataset.chargeId;
-      if (row.hidden) {
-        removed.add(key);
-        continue;
-      }
       const previous = rowById(budget.charges, key);
       try {
         const vendor = fields.get('vendor-' + key).trim();
@@ -657,7 +892,7 @@ root.addEventListener('submit', async event => {
         const dateText = fields.get('posted-' + key).trim();
         const postedDate = dateText === displayDate(previous.postedDate) ? previous.postedDate ?? null : parseCardDate(dateText);
         const amountCents = toCents(fields.get('amount-' + key), true);
-        const category = fields.get('category-' + key);
+        const category = fields.get('category-' + key) ?? previous.category;
         const important = fields.get('important-' + key) === 'on';
         updates.set(key, { ...previous, vendor, postedDate, amountCents, category, important });
       } catch (cause) {
@@ -666,26 +901,28 @@ root.addEventListener('submit', async event => {
       }
     }
     await commit(next => {
-      next.charges = next.charges.filter(charge => !removed.has(charge.id))
-        .map(charge => updates.get(charge.id) ?? charge);
+      next.charges = next.charges.map(charge => updates.get(charge.id) ?? charge);
     });
     return;
   }
   if (form.id === 'add-charges-' + activeCard) {
     const message = form.querySelector('.schedule-editor-error');
+    const dateInput = form.elements.posted;
+    let postedDate = null;
+    try {
+      if (!dateInput.disabled) {
+        if (!dateInput.value.trim()) throw new Error('Enter a date or select Pending.');
+        postedDate = parseCardDate(dateInput.value);
+      }
+    } catch (cause) {
+      message.textContent = cause.message;
+      dateInput.focus();
+      return;
+    }
     if (!queueCharge(form)) return;
     const rows = Array.from(form.querySelectorAll('.charge-draft-item'));
     if (!rows.length) {
       message.textContent = 'Enter at least one charge.';
-      return;
-    }
-    const dateInput = form.elements.posted.value.trim();
-    let postedDate;
-    try {
-      postedDate = parseCardDate(dateInput.toLowerCase() === 'pending' ? '' : dateInput);
-    } catch (cause) {
-      message.textContent = cause.message;
-      form.elements.posted.focus();
       return;
     }
     const charges = rows.map(row => ({ ...queuedCharges.get(row), id: id(), postedDate, card: activeCard }));
@@ -697,11 +934,8 @@ root.addEventListener('submit', async event => {
     try {
       message.textContent = '';
       const day = scheduleItemDay(fields.get('date'));
-      const amountCents = toCents(fields.get('amount'));
-      if (!amountCents) throw new Error('Enter an amount greater than zero.');
-      const direction = fields.get('direction');
-      if (direction !== 'to-savings' && direction !== 'from-savings') throw new Error('Choose a transfer type.');
-      const transfer = { id: id(), day, amountCents: direction === 'to-savings' ? -amountCents : amountCents };
+      const amountCents = signedAmount(fields.get('amount'));
+      const transfer = { id: id(), day, amountCents };
       await commit(next => { (next.savingsTransfers ??= []).push(transfer); });
     } catch (cause) {
       message.textContent = cause.message;
@@ -740,9 +974,8 @@ root.addEventListener('submit', async event => {
       const savingsTransfers = (budget.savingsTransfers ?? []).flatMap((transfer, index) => {
         if (fields.has('remove-savings-' + index)) return [];
         const day = scheduleItemDay(fields.get('savings-date-' + index));
-        const cents = toCents(fields.get('savings-amount-' + index));
-        if (!cents) throw new Error('Enter a savings amount greater than zero.');
-        return [{ ...transfer, day, amountCents: transfer.amountCents < 0 ? -cents : cents }];
+        const amountCents = signedAmount(fields.get('savings-amount-' + index));
+        return [{ ...transfer, day, amountCents }];
       });
       await commit(next => {
         next.openingCents = openingCents;
@@ -752,6 +985,20 @@ root.addEventListener('submit', async event => {
       });
     } catch (cause) {
       form.querySelector('.schedule-editor-error').textContent = cause.message;
+    }
+    return;
+  }
+  if (form.id === 'add-checking-item') {
+    const message = form.querySelector('.schedule-editor-error');
+    try {
+      message.textContent = '';
+      const name = fields.get('name').trim();
+      if (!name) throw new Error('Enter a description.');
+      const day = scheduleItemDay(fields.get('date'));
+      const amountCents = signedAmount(fields.get('amount'));
+      await commit(next => { (next.checkingItems ??= []).push({ id: id(), name, day, amountCents }); });
+    } catch (cause) {
+      message.textContent = cause.message;
     }
     return;
   }
@@ -772,19 +1019,31 @@ root.addEventListener('submit', async event => {
   }
 });
 root.addEventListener('click', async event => {
+  if (!event.target.closest('.charge-swipe-delete, .charge-dialog, .checking-row-toggle')) revealRowDelete();
   const button = event.target.closest('[data-action]'); if (!button || button.disabled) return;
   const action = button.dataset.action;
+  if (action === 'toggle-schedule-section') {
+    const sectionId = button.getAttribute('aria-controls');
+    const expanded = button.getAttribute('aria-expanded') !== 'true';
+    scheduleSectionOverrides.set(sectionId, expanded);
+    button.setAttribute('aria-expanded', String(expanded));
+    document.getElementById(sectionId).toggleAttribute('data-collapsed', !expanded);
+    return;
+  }
   if (action === 'open-bill-breakdown') {
     document.getElementById(button.getAttribute('aria-controls')).showModal();
     return;
   }
   if (action === 'open-item-dialog') {
     const dialog = document.getElementById(button.getAttribute('aria-controls'));
+    button.closest('dialog')?.close();
     for (const form of dialog.querySelectorAll('form')) {
       form.reset();
+      delete form.dataset.debitDayChosen;
       form.querySelector('.schedule-editor-error').textContent = '';
     }
     if (dialog.id === 'schedule-item-dialog') setScheduleItemView(dialog, 'choice');
+    if (dialog.id === 'bill-item-dialog') setScheduleItemView(dialog, button.dataset.checkingView ?? 'checking');
     dialog.showModal();
     return;
   }
@@ -804,8 +1063,59 @@ root.addEventListener('click', async event => {
     button.closest('dialog').close();
     return;
   }
+  if (action === 'open-card-month-activity') {
+    const card = cardTabs.find(card => card.id === activeCard);
+    const dialog = root.querySelector('#card-month-activity');
+    dialog.querySelector('h3').textContent = card.name + ' activity';
+    dialog.querySelector('[data-activity-cycle]').textContent = 'Statement cycle · ' + cardCycleDates(card);
+    const list = dialog.querySelector('.card-month-activity-list');
+    list.innerHTML = cardChargeTable(budget.charges.filter(charge => charge.card === card.id), card.id, true);
+    dialog.showModal();
+    dialog.scrollTop = 0;
+    return;
+  }
+  if (action === 'show-charge-vendor') {
+    const popover = root.querySelector('#charge-vendor-details');
+    const anchor = button.getBoundingClientRect();
+    const viewportHeight = document.documentElement.clientHeight;
+    const viewportWidth = document.documentElement.clientWidth;
+    const left = Math.max(8, Math.min(anchor.left, viewportWidth - 168));
+    const above = anchor.bottom > viewportHeight / 2;
+    popover.textContent = button.textContent;
+    popover.style.setProperty('--vendor-popover-left', left + 'px');
+    popover.style.top = above ? 'auto' : anchor.bottom + 4 + 'px';
+    popover.style.bottom = above ? viewportHeight - anchor.top + 4 + 'px' : 'auto';
+    return;
+  }
+  if (action === 'confirm-charge-removal') {
+    if (busy || budget.closed) return;
+    const charge = rowById(budget.charges, button.closest('tr').dataset.chargeId);
+    const dialog = root.querySelector('#charge-delete-dialog');
+    dialog.dataset.chargeId = charge.id;
+    dialog.querySelector('#charge-delete-details').textContent =
+      [charge.vendor, money(charge.amountCents), displayDate(charge.postedDate) || 'Pending'].join(' · ');
+    dialog.showModal();
+    return;
+  }
+  if (action === 'delete-saved-charge') {
+    const dialog = button.closest('dialog');
+    const chargeId = dialog.dataset.chargeId;
+    dialog.close();
+    await commit(next => {
+      next.charges = next.charges.filter(charge => charge.id !== chargeId);
+    });
+    root.querySelector('[data-action="open-card-month-activity"]')?.focus({ preventScroll: true });
+    return;
+  }
   if (action === 'queue-charge') {
     if (queueCharge(button.form, true)) button.form.elements.vendor.focus();
+    return;
+  }
+  if (action === 'toggle-charge-pending') {
+    const pending = button.getAttribute('aria-pressed') !== 'true';
+    button.setAttribute('aria-pressed', String(pending));
+    button.form.elements.posted.disabled = pending;
+    button.form.querySelector('.schedule-editor-error').textContent = '';
     return;
   }
   if (action === 'edit-charge-draft') {
@@ -817,7 +1127,6 @@ root.addEventListener('click', async event => {
   if (action === 'remove-charge-draft') {
     const form = button.form;
     form.querySelector('.charge-draft-item[aria-pressed="true"]').remove();
-    updateChargeTotals(form);
     setChargeEditor(form);
     form.elements.vendor.focus();
     return;
@@ -825,24 +1134,31 @@ root.addEventListener('click', async event => {
   if (action === 'select-card') return selectCard(button.dataset.card);
   if (action === 'edit-bills') {
     button.form.classList.add('is-editing');
-    button.form.querySelector('.bill-fields input')?.focus();
+    button.form.querySelector('.bill-fields :is(select, input)')?.focus();
     return;
   }
   if (action === 'cancel-bill-edits') {
     const form = button.form;
     form.reset();
-    for (const row of form.querySelectorAll('li[data-bill-id][hidden]')) row.hidden = false;
     form.querySelector('.schedule-editor-error').textContent = '';
     form.classList.remove('is-editing');
     form.querySelector('[data-action="edit-bills"]').focus();
     return;
   }
-  if (action === 'stage-bill-removal') {
+  if (action === 'toggle-checking-removal') {
     const row = button.closest('li');
-    const next = row.nextElementSibling ?? row.previousElementSibling;
-    row.hidden = true;
-    const target = next?.querySelector('.bill-remove-button') ?? button.form.querySelector('[type="submit"]');
-    target.focus();
+    const open = !row.classList.contains('swipe-row-open');
+    revealRowDelete(open ? row : null);
+    if (open && event.detail === 0) row.querySelector('[data-swipe-delete]').focus();
+    return;
+  }
+  if (action === 'delete-checking-row') {
+    const { billId, checkingId } = button.closest('li').dataset;
+    revealRowDelete();
+    await commit(next => {
+      if (billId !== undefined) next.bills = next.bills.filter(bill => bill.id !== billId);
+      else next.checkingItems = next.checkingItems.filter(item => item.id !== checkingId);
+    });
     return;
   }
   if (action === 'edit-charges') {
@@ -853,16 +1169,9 @@ root.addEventListener('click', async event => {
   if (action === 'cancel-charge-edits') {
     const form = button.form;
     form.reset();
-    for (const row of form.querySelectorAll('tr[hidden]')) row.hidden = false;
     form.querySelector('.schedule-editor-error').textContent = '';
     form.classList.remove('is-editing');
     form.querySelector('[data-action="edit-charges"]').focus();
-    return;
-  }
-  if (action === 'stage-charge-removal') {
-    const row = button.closest('tr');
-    row.hidden = true;
-    button.form.querySelector('[type="submit"]').focus();
     return;
   }
   if (action === 'edit-schedule') {

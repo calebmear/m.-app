@@ -25,6 +25,11 @@ function panelEditButton(action, label, stateClass) {
     </svg>
   </button>`;
 }
+function panelAddButton(dialogId, label) {
+  return `<button type="button" class="panel-add-button" data-action="open-item-dialog" aria-label="${label}" aria-haspopup="dialog" aria-controls="${dialogId}" ${disabled()}>
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+  </button>`;
+}
 function optionList(selected, compact = false) {
   const options = [['', 'Uncategorized'], ...Object.entries(CC_CATEGORY_CODES)];
   if (selected && !CATEGORIES.includes(selected)) options.push(['', selected]);
@@ -54,6 +59,38 @@ function rememberVendors(charges) {
 
 function renderAuth() {
   root.innerHTML = `<main class="auth"><div class="wordmark">m.</div><h1>Your month, reconciled.</h1><p>Sign in to open your paycheck schedule, bills, and card activity.</p>${error ? `<p role="alert" class="error">${esc(error)}</p>` : ''}<form id="sign-in"><label>Email<input name="email" type="email" autocomplete="email" required></label><label>Password<input name="password" type="password" autocomplete="current-password" required></label><button class="primary" ${busy ? 'disabled' : ''}>${busy ? 'Signing in…' : 'Sign in'}</button></form></main>`;
+}
+function scheduleItemDialogMarkup(lastDay) {
+  if (budget.closed) return '';
+  const dateLimits = `min="${selectedMonth}-01" max="${selectedMonth}-${lastDay}"`;
+  const actions = label => `<div class="schedule-item-actions">
+    <button type="button" data-action="choose-schedule-item" data-item="choice">Back</button>
+    <button class="primary" type="submit" ${disabled()}>${label}</button>
+  </div>
+  <div role="alert" class="schedule-editor-error"></div>`;
+  return `${panelAddButton('schedule-item-dialog', 'Add a schedule item')}
+  <dialog id="schedule-item-dialog" class="schedule-item-dialog" aria-labelledby="schedule-item-title">
+    <div class="schedule-item-heading">
+      <h3 id="schedule-item-title" tabindex="-1">Add to schedule</h3>
+      <button type="button" data-action="close-item-dialog" aria-label="Close schedule dialog">×</button>
+    </div>
+    <div class="schedule-item-choices" data-schedule-item-view="choice">
+      <button type="button" data-action="choose-schedule-item" data-item="income">+ Income</button>
+      <button type="button" data-action="choose-schedule-item" data-item="savings">+ Savings</button>
+    </div>
+    <form id="add-pay" class="inline-form schedule-item-form" data-schedule-item-view="income" hidden>
+      <label>Name<input name="name" required maxlength="80" placeholder="Income name"></label>
+      <label>Date<input name="date" type="date" ${dateLimits} required></label>
+      <label>Amount ($)<input name="amount" inputmode="decimal" placeholder="0.00" required></label>
+      ${actions('Add income')}
+    </form>
+    <form id="add-savings" class="inline-form schedule-item-form" data-schedule-item-view="savings" hidden>
+      <label>Type<select name="direction"><option value="to-savings">Transfer to savings</option><option value="from-savings">Withdraw from savings</option></select></label>
+      <label>Date<input name="date" type="date" ${dateLimits} required></label>
+      <label>Amount ($)<input name="amount" inputmode="decimal" placeholder="0.00" required></label>
+      ${actions('Add transfer')}
+    </form>
+  </dialog>`;
 }
 function scheduleMarkup() {
   const monthNumber = Number(selectedMonth.slice(5));
@@ -130,34 +167,22 @@ function scheduleMarkup() {
       ${savingsEditors}
     </section>` : ''}
     </form>
-    ${budget.closed ? '' : `<details class="add-details">
-      <summary>+ Savings</summary>
-      <form id="add-savings" class="inline-form">
-        <label>Type<select name="direction" ${disabled()}><option value="to-savings">Transfer to savings</option><option value="from-savings">Withdraw from savings</option></select></label>
-        <label>Date<input name="date" type="date" min="${selectedMonth}-01" max="${selectedMonth}-${lastDay}" required ${disabled()}></label>
-        <label>Amount ($)<input name="amount" inputmode="decimal" placeholder="0.00" required ${disabled()}></label>
-        <button ${disabled()}>Add transfer</button>
-        <div role="alert" class="schedule-editor-error"></div>
-      </form>
-    </details>`}
-    <details class="add-details">
-      <summary>Add a paycheck</summary>
-      <form id="add-pay" class="inline-form">
-        <label>Name<input name="name" required maxlength="80" placeholder="Paycheck name" ${disabled()}></label>
-        <label>Day<input name="day" type="number" min="1" max="${lastDay}" value="6" required ${disabled()}></label>
-        <label>Amount ($)<input name="amount" inputmode="decimal" value="0.00" required ${disabled()}></label>
-        <button ${disabled()}>Add paycheck</button>
-      </form>
-    </details>
+    ${scheduleItemDialogMarkup(lastDay)}
   </section>`;
 }
 function cardChargeTable(charges, scope) {
   if (!charges.length) return '<p class="hint">No card activity entered for this month.</p>';
-  const rows = sortedCharges(charges).map(charge => {
+  const rows = sortedCharges(charges).map((charge, index, orderedCharges) => {
     const key = esc(charge.id);
     const vendor = esc(charge.vendor);
     const code = Object.entries(CC_CATEGORY_CODES).find(([, category]) => category === charge.category)?.[0] ?? '—';
     const date = displayDate(charge.postedDate);
+    const dateChanged = index > 0 && (charge.postedDate ?? '') !== (orderedCharges[index - 1].postedDate ?? '');
+    const rowClass = [
+      dateChanged ? 'charge-date-divider' : '',
+      charge.important === true ? 'charge-important' : '',
+      charge.amountCents < 0 ? 'charge-refund' : '',
+    ].filter(Boolean).join(' ');
     const edit = budget.closed ? [] : [
       `<div class="charge-code-edit">
         <select name="category-${key}" data-category-code aria-label="Category code for ${vendor}">${optionList(charge.category, true)}</select>
@@ -168,10 +193,10 @@ function cardChargeTable(charges, scope) {
       `<input name="amount-${key}" value="${amount(charge.amountCents)}" inputmode="decimal" aria-label="Amount for ${vendor}">`,
     ];
     const cell = (value, index) => `<span class="charge-list-view">${value}</span>${edit[index] ? `<div class="charge-list-edit">${edit[index]}</div>` : ''}`;
-    return `<tr data-charge-id="${key}" data-charge-code="${code}"${charge.important === true ? ' class="charge-important"' : ''}>
+    return `<tr data-charge-id="${key}" data-charge-code="${code}" class="${rowClass}">
       <td><span class="charge-list-view" title="${esc(charge.category)}">${code}</span>${edit[0] ? `<div class="charge-list-edit">${edit[0]}</div>` : ''}</td>
       <td title="${vendor}">${cell(vendor, 1)}</td>
-      <td class="numeric ${negative(charge.amountCents)}">${cell(esc(money(charge.amountCents)), 3)}</td>
+      <td class="numeric">${cell(esc(money(charge.amountCents)), 3)}</td>
       <td>${cell(esc(date || 'Pending'), 2)}</td>
       ${budget.closed ? '' : `<td class="charge-list-edit charge-remove-cell"><button class="charge-remove-button" type="button" data-action="stage-charge-removal" aria-label="Remove ${vendor}">−</button></td>`}
     </tr>`;
@@ -258,6 +283,10 @@ function cardMarkup() {
 }
 function billsMarkup() {
   const lastDay = daysInMonth(selectedMonth);
+  const debitDayOptions = Array.from({ length: lastDay }, (_, index) => {
+    const day = index + 1;
+    return `<option value="${day}">${day}</option>`;
+  }).join('');
   const bills = budget.bills.slice().sort((a, b) => a.day - b.day);
   const debitDate = bill => `${Number(selectedMonth.slice(5))}/${bill.day}`;
   const rows = bills.map(bill => {
@@ -285,30 +314,37 @@ function billsMarkup() {
         <div><h2>Checking bills</h2><p class="hint">${bills.filter(bill => bill.paid).length} of ${bills.length} paid · ${money(totals(budget).remainingBills)} still to clear</p></div>
         ${!budget.closed && rows ? panelEditButton('edit-bills', 'Edit checking bills', 'bill-edit-button') : ''}
       </div>
-      ${rows ? `<ul class="bill-list">${rows}</ul>` : '<p class="hint">Add your recurring bills below.</p>'}
+      ${rows ? `<ul class="bill-list">${rows}</ul>` : '<p class="hint">No bills for this month.</p>'}
       <div role="alert" class="schedule-editor-error"></div>
       ${!budget.closed && rows ? `<div class="bill-edit-actions">
         <button type="button" data-action="cancel-bill-edits" ${disabled()}>Cancel</button>
         <button type="submit" class="primary" ${disabled()}>Save changes</button>
       </div>` : ''}
     </form>
-    ${budget.closed ? '' : `<details class="add-details">
-      <summary>Add a bill</summary>
-      <form id="add-bill" class="inline-form">
+    ${budget.closed ? '' : `${panelAddButton('bill-item-dialog', 'Add a bill')}
+    <dialog id="bill-item-dialog" class="schedule-item-dialog" aria-labelledby="bill-item-title">
+      <div class="schedule-item-heading">
+        <h3 id="bill-item-title">Add a bill</h3>
+        <button type="button" data-action="close-item-dialog" aria-label="Close bill dialog">×</button>
+      </div>
+      <form id="add-bill" class="inline-form schedule-item-form">
         <label>Bill name<input name="name" maxlength="100" placeholder="Mortgage, water…" required ${disabled()}></label>
-        <label>Day<input name="day" type="number" min="1" max="${lastDay}" value="1" required ${disabled()}></label>
+        <label>Debit day<select name="day" ${disabled()}>${debitDayOptions}<option value="eom">End of month</option></select></label>
         <label>Amount ($)<input name="amount" inputmode="decimal" placeholder="0.00" required ${disabled()}></label>
-        <label class="checkbox-label"><input type="checkbox" name="eom" ${disabled()}>End of month</label>
-        <button ${disabled()}>Add bill</button>
+        <div class="schedule-item-actions">
+          <button type="button" data-action="close-item-dialog">Cancel</button>
+          <button class="primary" type="submit" ${disabled()}>Add bill</button>
+        </div>
+        <div role="alert" class="schedule-editor-error"></div>
       </form>
-    </details>`}
+    </dialog>`}
   </section>`;
 }
 function render() {
   if (supabase && !activeUser) return renderAuth();
   if (!budget) { root.innerHTML = `<main class="auth"><div class="wordmark">m.</div><p>${loading ? 'Opening your month…' : esc(error || 'Could not open your budget.')}</p>${!loading ? '<button data-action="reload">Try again</button>' : ''}</main>`; return; }
   const t = totals(budget);
-  root.innerHTML = `<div class="app-shell"><header><div class="topline"><div class="brand">m.<span>app</span></div><div class="account">${supabase ? `<button data-action="sign-out" ${busy || dirty ? 'disabled' : ''}>Sign out</button>` : '<span>Stored on this device</span>'}</div></div>${monthNavigationMarkup(selectedMonth, busy || dirty)}<div class="save-line" role="status">${busy ? 'Saving…' : dirty ? 'Changes need to be saved' : supabase ? 'Saved to your account' : 'Saved on this device'}${notice ? ` · ${esc(notice)}` : ''}</div></header>${error ? `<div class="error-banner" role="alert"><p>${esc(error)}</p><div>${dirty ? '<button data-action="retry">Retry save</button>' : ''}<button data-action="reload">Reload saved version</button></div></div>` : ''}<main class="workspace">${scheduleMarkup()}<div class="ledgers">${cardMarkup()}${billsMarkup()}</div></main><footer><div>${t.lowest < 0 ? '<span class="negative">A scheduled balance falls below zero.</span>' : 'Every scheduled balance stays at or above zero.'}</div><details><summary>Month options</summary><div class="footer-actions"><button data-action="defaults" ${busy || dirty || budget.closed ? 'disabled' : ''}>Use bills & paychecks as future defaults</button><button data-action="export" ${busy ? 'disabled' : ''}>Export this month</button><button data-action="close" ${busy || dirty ? 'disabled' : ''}>${budget.closed ? 'Reopen month' : 'Close month'}</button></div><p class="hint">All edits belong to ${esc(monthLabel(selectedMonth))}. Future defaults only populate months you have not opened yet.</p></details></footer></div>`;
+  root.innerHTML = `<div class="app-shell"><header><div class="topline"><div class="brand">m.</div><div class="account">${supabase ? `<button data-action="sign-out" ${busy || dirty ? 'disabled' : ''}>Sign out</button>` : '<span>Stored on this device</span>'}</div></div>${monthNavigationMarkup(selectedMonth, busy || dirty)}<div class="save-line" role="status">${busy ? 'Saving…' : dirty ? 'Changes need to be saved' : supabase ? 'Saved to your account' : 'Saved on this device'}${notice ? ` · ${esc(notice)}` : ''}</div></header>${error ? `<div class="error-banner" role="alert"><p>${esc(error)}</p><div>${dirty ? '<button data-action="retry">Retry save</button>' : ''}<button data-action="reload">Reload saved version</button></div></div>` : ''}<main class="workspace">${scheduleMarkup()}<div class="ledgers">${cardMarkup()}${billsMarkup()}</div></main><footer><div>${t.lowest < 0 ? '<span class="negative">A scheduled balance falls below zero.</span>' : 'Every scheduled balance stays at or above zero.'}</div><details><summary>Month options</summary><div class="footer-actions"><button data-action="defaults" ${busy || dirty || budget.closed ? 'disabled' : ''}>Use bills & paychecks as future defaults</button><button data-action="export" ${busy ? 'disabled' : ''}>Export this month</button><button data-action="close" ${busy || dirty ? 'disabled' : ''}>${budget.closed ? 'Reopen month' : 'Close month'}</button></div><p class="hint">All edits belong to ${esc(monthLabel(selectedMonth))}. Future defaults only populate months you have not opened yet.</p></details></footer></div>`;
   scrollToLatestCharges();
 }
 function scrollToLatestCharges() {
@@ -366,11 +402,19 @@ function rowById(rows, rowId) {
   if (!row) throw new Error('This entry is no longer available. Reload the month.');
   return row;
 }
-function savingsTransferDay(date) {
+function scheduleItemDay(date) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date.slice(0, 7) !== selectedMonth) {
-    throw new Error('Choose a savings date in the selected month.');
+    throw new Error('Choose a date in the selected month.');
   }
   return validateDay(date.slice(8), selectedMonth);
+}
+function setScheduleItemView(dialog, view) {
+  const title = dialog.querySelector('#schedule-item-title');
+  title.textContent = { choice: 'Add to schedule', income: 'Add income', savings: 'Add savings' }[view];
+  for (const panel of dialog.querySelectorAll('[data-schedule-item-view]')) {
+    panel.hidden = panel.dataset.scheduleItemView !== view;
+  }
+  if (dialog.open) title.focus();
 }
 function setSavingsRemoval(editor, removed) {
   editor.querySelector('input[type="checkbox"]').checked = removed;
@@ -603,13 +647,27 @@ root.addEventListener('submit', async event => {
     const message = form.querySelector('.schedule-editor-error');
     try {
       message.textContent = '';
-      const day = savingsTransferDay(fields.get('date'));
+      const day = scheduleItemDay(fields.get('date'));
       const amountCents = toCents(fields.get('amount'));
       if (!amountCents) throw new Error('Enter an amount greater than zero.');
       const direction = fields.get('direction');
       if (direction !== 'to-savings' && direction !== 'from-savings') throw new Error('Choose a transfer type.');
       const transfer = { id: id(), day, amountCents: direction === 'to-savings' ? -amountCents : amountCents };
       await commit(next => { (next.savingsTransfers ??= []).push(transfer); });
+    } catch (cause) {
+      message.textContent = cause.message;
+    }
+    return;
+  }
+  if (form.id === 'add-pay') {
+    const message = form.querySelector('.schedule-editor-error');
+    try {
+      message.textContent = '';
+      const name = (fields.get('name') ?? '').trim();
+      if (!name) throw new Error('Enter an income name.');
+      const day = scheduleItemDay(fields.get('date'));
+      const amountCents = toCents(fields.get('amount'));
+      await commit(next => next.paychecks.push({ id: id(), name, day, amountCents, received: false }));
     } catch (cause) {
       message.textContent = cause.message;
     }
@@ -632,7 +690,7 @@ root.addEventListener('submit', async event => {
       }));
       const savingsTransfers = (budget.savingsTransfers ?? []).flatMap((transfer, index) => {
         if (fields.has('remove-savings-' + index)) return [];
-        const day = savingsTransferDay(fields.get('savings-date-' + index));
+        const day = scheduleItemDay(fields.get('savings-date-' + index));
         const cents = toCents(fields.get('savings-amount-' + index));
         if (!cents) throw new Error('Enter a savings amount greater than zero.');
         return [{ ...transfer, day, amountCents: transfer.amountCents < 0 ? -cents : cents }];
@@ -648,23 +706,43 @@ root.addEventListener('submit', async event => {
     }
     return;
   }
-  try {
-    if (form.id === 'add-bill') {
-      const name = String(fields.get('name')).trim(), amountCents = toCents(fields.get('amount')), endOfMonth = fields.has('eom');
-      const day = endOfMonth ? daysInMonth(selectedMonth) : validateDay(fields.get('day'), selectedMonth);
+  if (form.id === 'add-bill') {
+    const message = form.querySelector('.schedule-editor-error');
+    try {
+      message.textContent = '';
+      const name = (fields.get('name') ?? '').trim();
+      const amountCents = toCents(fields.get('amount'));
+      const debitDay = fields.get('day');
+      const endOfMonth = debitDay === 'eom';
+      const day = endOfMonth ? daysInMonth(selectedMonth) : validateDay(debitDay, selectedMonth);
       if (!name) throw new Error('Enter a bill name.');
       await commit(next => next.bills.push({ id: id(), name, day, amountCents, endOfMonth, paid: false }));
+    } catch (cause) {
+      message.textContent = cause.message;
     }
-    if (form.id === 'add-pay') {
-      const name = String(fields.get('name')).trim(), day = validateDay(fields.get('day'), selectedMonth), amountCents = toCents(fields.get('amount'));
-      if (!name) throw new Error('Enter a paycheck name.');
-      await commit(next => next.paychecks.push({ id: id(), name, day, amountCents, received: false }));
-    }
-  } catch (cause) { const input = form.querySelector('input'); input.setCustomValidity(cause.message); input.reportValidity(); }
+  }
 });
 root.addEventListener('click', async event => {
   const button = event.target.closest('[data-action]'); if (!button || button.disabled) return;
   const action = button.dataset.action;
+  if (action === 'open-item-dialog') {
+    const dialog = document.getElementById(button.getAttribute('aria-controls'));
+    for (const form of dialog.querySelectorAll('form')) {
+      form.reset();
+      form.querySelector('.schedule-editor-error').textContent = '';
+    }
+    if (dialog.id === 'schedule-item-dialog') setScheduleItemView(dialog, 'choice');
+    dialog.showModal();
+    return;
+  }
+  if (action === 'choose-schedule-item') {
+    setScheduleItemView(button.closest('dialog'), button.dataset.item);
+    return;
+  }
+  if (action === 'close-item-dialog') {
+    button.closest('dialog').close();
+    return;
+  }
   if (action === 'open-charge-dialog') {
     root.querySelector('#charge-dialog-' + activeCard).showModal();
     return;

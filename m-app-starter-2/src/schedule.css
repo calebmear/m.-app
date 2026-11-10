@@ -148,10 +148,10 @@
   text-transform: uppercase;
 }
 
-.panel-edit-button {
+.panel-edit-button,
+.panel-add-button {
   position: absolute;
   inset-block-start: 0.5rem;
-  inset-inline-end: 0.5rem;
   display: inline-grid;
   place-items: center;
   width: 2.125rem;
@@ -159,6 +159,10 @@
   padding: 0;
   border-color: transparent;
   background: transparent;
+}
+
+.panel-edit-button {
+  inset-inline-end: 0.5rem;
 }
 
 .card-tab-panel .charge-list:not(.is-editing) .charge-list-actions {
@@ -191,7 +195,8 @@
   margin-top: 0.65rem;
 }
 
-.charge-dialog {
+.charge-dialog,
+.schedule-item-dialog {
   box-sizing: border-box;
   width: min(44rem, calc(100% - 2rem));
   max-height: calc(100% - 2rem);
@@ -202,7 +207,8 @@
   color: inherit;
 }
 
-.charge-dialog::backdrop {
+.charge-dialog::backdrop,
+.schedule-item-dialog::backdrop {
   background: rgb(20 33 25 / 45%);
 }
 
@@ -314,15 +320,23 @@
   border-bottom: 1px solid #e4e8e0;
 }
 
-.bill-summary {
+.bill-summary,
+.bill-fields {
   display: grid;
-  grid-template-columns: 2.5rem minmax(0, 1fr) max-content max-content;
   align-items: center;
+  min-height: 2.75rem;
+}
+
+.bill-summary {
+  grid-template-columns: 2.5rem minmax(0, 1fr) max-content max-content;
   gap: 0.4rem;
+  padding-inline: 1.125rem;
 }
 
 .bill-summary-name {
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .bill-summary-date,
@@ -338,16 +352,15 @@
 
 #edit-bills:not(.is-editing) :is(.bill-fields, .bill-edit-actions),
 #edit-bills.is-editing :is(.bill-summary, .bill-edit-button),
-#edit-bills.is-editing ~ .add-details,
+#edit-bills.is-editing ~ .panel-add-button,
 .bill-list > li[hidden] {
   display: none;
 }
 
 .bill-fields {
-  display: grid;
-  grid-template-columns: 3rem minmax(0, 1fr) minmax(4rem, 5.5rem) max-content 2.25rem;
-  align-items: center;
-  gap: 0.25rem 0.4rem;
+  grid-template-columns: 2.75rem minmax(0, 1fr) clamp(3.9rem, 18vw, 5.5rem) 1.5rem 1.75rem;
+  gap: 0.25rem;
+  padding-inline: 0.25rem;
 }
 
 .bill-fields .bill-paid-field,
@@ -361,6 +374,14 @@
   white-space: nowrap;
 }
 
+.bill-summary .bill-paid-field {
+  justify-content: flex-end;
+}
+
+.bill-fields .bill-paid-field {
+  justify-content: center;
+}
+
 .bill-paid-field input[type="checkbox"] {
   width: 1rem;
   height: 1rem;
@@ -372,11 +393,17 @@
   box-sizing: border-box;
   width: 100%;
   min-width: 0;
-  padding-inline: 0.35rem;
+  min-height: 2.25rem;
+  padding-inline: 0.2rem;
 }
 
+.bill-fields > input[name^="day-"] { text-align: center; }
+.bill-fields > input[name^="amount-"] { text-align: right; }
+
 .bill-remove-button {
-  padding-inline: 0;
+  min-width: 0;
+  min-height: 2.25rem;
+  padding: 0;
 }
 
 .bill-edit-actions {
@@ -397,44 +424,16 @@
   gap: 0.35rem;
 }
 
-.bill-summary-name {
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
 .bill-summary-amount {
   text-align: right;
 }
 
-.bill-fields {
-  grid-template-columns: 3.25rem minmax(0, 1fr) 2.75rem 2.75rem;
-  grid-template-areas:
-    "day name name name"
-    "amount amount paid remove";
-  gap: 0.5rem;
-}
-
-.bill-fields > input[name^="day-"] { grid-area: day; }
-.bill-fields > input[name^="name-"] { grid-area: name; }
-.bill-fields > input[name^="amount-"] { grid-area: amount; }
-.bill-fields .bill-remove-button { grid-area: remove; }
-.bill-fields .bill-paid-field { grid-area: paid; }
-
 .bill-fields .bill-paid-field,
 .bill-summary .bill-paid-field {
-  justify-content: center;
   min-height: 44px;
   cursor: pointer;
 }
 
-#add-bill {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-#add-bill > label:first-child {
-  grid-column: 1 / -1;
-}
 }
 
 .charge-list-table {
@@ -457,6 +456,10 @@
 
 .charge-list-table tbody tr {
   height: var(--charge-row-height);
+}
+
+.charge-list-table .charge-date-divider > td {
+  border-top: 2px solid #8b968d;
 }
 
 .charge-list-table td:nth-child(2) > :is(.charge-list-view, .charge-list-edit) {
@@ -503,6 +506,11 @@
 
 .charge-list-table tbody .charge-important {
   --charge-color: #000;
+}
+
+.charge-list-table tbody .charge-refund {
+  --charge-color: #146b38;
+  color: var(--charge-color);
 }
 
 .charge-list-table td > .charge-list-view {
@@ -672,6 +680,68 @@ width: 100%;
 
 .schedule-savings-fields:disabled {
 opacity: 0.55;
+}
+
+.panel-add-button {
+  inset-inline-start: 0.5rem;
+  border: 0;
+  color: var(--accent);
+}
+
+#edit-schedule.is-editing ~ .panel-add-button,
+.schedule-item-dialog [hidden] {
+display: none;
+}
+
+.schedule-item-dialog {
+width: min(27rem, calc(100% - 2rem));
+}
+
+.schedule-item-heading,
+.schedule-item-actions {
+display: flex;
+align-items: center;
+justify-content: space-between;
+gap: 0.5rem;
+}
+
+.schedule-item-heading {
+margin-bottom: 0.75rem;
+}
+
+.schedule-item-heading h3 {
+margin: 0;
+}
+
+.schedule-item-heading button {
+width: 2.25rem;
+padding: 0;
+font-size: 1.25rem;
+}
+
+.schedule-item-choices,
+.schedule-item-form {
+display: grid;
+grid-template-columns: repeat(2, minmax(0, 1fr));
+gap: 0.5rem;
+}
+
+.schedule-item-form > :is(label:first-child, .schedule-item-actions, .schedule-editor-error) {
+grid-column: 1 / -1;
+}
+
+.schedule-item-form > label {
+grid-template-columns: minmax(0, 1fr);
+}
+
+.schedule-item-form :is(input, select) {
+width: 100%;
+}
+
+@media (max-width: 380px) {
+.schedule-item-form {
+  grid-template-columns: minmax(0, 1fr);
+}
 }
 
 /* Display the existing wordmark without its suffix. */

@@ -128,7 +128,8 @@ function scheduleMarkup() {
     label = label.replace(/(^|[\s(/·-])(\p{L})/gu, (_, prefix, letter) => prefix + letter.toUpperCase());
     const fullLabel = row.kind === 'opening' ? 'BOA after mortgage/fees' : label;
     const balanceClass = row.kind === 'opening' || row.kind === 'balance' ? 'schedule-balance' : '';
-    const rowClass = index === schedule.length - 1 ? 'schedule-ending' : balanceClass;
+    const isRollover = row.kind === 'balance' && row.day === lastDay;
+    const rowClass = isRollover ? 'schedule-ending' : balanceClass;
     const rowType = row.expenseType ?? row.kind;
     const amountClass = row.kind === 'savings' ? '' : negative(row.amountCents);
     let date = `${monthNumber}/${row.day}`;
@@ -189,7 +190,9 @@ function scheduleMarkup() {
     const sectionId = 'schedule-section-' + row.day;
     const checkpoint = row.kind === 'balance' && row.day !== lastDay && sectionRows.length > 0;
     const expanded = scheduleSectionOverrides.get(sectionId) ?? (today >= sectionStart && today <= row.day);
-    const description = `<span class="schedule-description" title="${esc(fullLabel)}">${esc(label)}</span>`;
+    const description = isRollover
+      ? '<span>Remaining Balance</span><span class="schedule-rollover-caption">Month-end rollover</span>'
+      : `<span class="schedule-description" title="${esc(fullLabel)}">${esc(label)}</span>`;
     const rowMarkup = `<tr class="${rowClass} schedule-type-${rowType}${checkpoint ? ' schedule-checkpoint' : ''}">
       <td class="schedule-date">${date}</td>
       <th scope="row">${checkpoint ? `
@@ -262,7 +265,7 @@ function scheduleMarkup() {
 function cardChargeTable(charges, scope, fullActivity = false) {
   if (!charges.length) return '<p class="hint">No card activity entered for this month.</p>';
   const editable = !fullActivity && !budget.closed;
-  const rows = sortedCharges(charges).map((charge, index, orderedCharges) => {
+  const rows = sortedCharges(charges).reverse().map((charge, index, orderedCharges) => {
     const key = esc(charge.id);
     const vendor = esc(charge.vendor);
     const code = Object.entries(CC_CATEGORY_CODES).find(([, category]) => category === charge.category)?.[0] ?? '—';
@@ -535,7 +538,7 @@ function render() {
 }
 function scrollToLatestCharges() {
   for (const list of root.querySelectorAll('.card-tab-panel:not([hidden]) .charge-list-scroll')) {
-    list.scrollTop = list.scrollHeight;
+    list.scrollTop = 0;
   }
 }
 async function loadMonth() {
@@ -682,13 +685,13 @@ function queueCharge(form, required = false) {
     const draft = readChargeDraft(form);
     if (!draft && !required && !row) return true;
     if (!draft) throw new Error('Enter a vendor and amount.');
+    const previous = queuedCharges.get(row);
     if (!row) {
       row = document.createElement('button');
       row.type = 'button';
       row.className = 'charge-draft-item';
       row.dataset.action = 'edit-charge-draft';
       row.setAttribute('aria-pressed', 'false');
-      form.querySelector('.charge-draft-list').prepend(row);
     }
     const code = Object.entries(CC_CATEGORY_CODES).find(([, name]) => name === draft.category)?.[0] ?? '—';
     const date = displayDate(draft.postedDate) || 'Pending';
@@ -699,6 +702,9 @@ function queueCharge(form, required = false) {
     }));
     row.classList.toggle('charge-important', draft.important);
     queuedCharges.set(row, draft);
+    if (required || !previous || Object.entries(draft).some(([key, value]) => previous[key] !== value)) {
+      form.querySelector('.charge-draft-list').prepend(row);
+    }
     setChargeEditor(form);
     return true;
   } catch (cause) {
@@ -904,7 +910,7 @@ root.addEventListener('submit', async event => {
       message.textContent = 'Enter at least one charge.';
       return;
     }
-    // Drafts display newest first. Save them in the order they were added.
+    // Store drafts from oldest to newest so saved activity can show the latest first.
     const charges = rows.reverse().map(row => ({ ...queuedCharges.get(row), id: id(), card: activeCard }));
     await commit(next => { next.charges.push(...charges); });
     return;
@@ -1119,7 +1125,7 @@ root.addEventListener('click', async event => {
     const chargeList = form.querySelector('.charge-list-scroll');
     if (chargeList) {
       chargeList.focus({ preventScroll: true });
-      chargeList.scrollTop = chargeList.scrollHeight;
+      chargeList.scrollTop = 0;
     } else {
       form.tabIndex = -1;
       form.focus({ preventScroll: true });

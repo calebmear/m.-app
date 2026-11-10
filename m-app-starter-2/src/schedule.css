@@ -297,8 +297,16 @@ body:has(dialog:modal) :is(.workspace, .schedule-panel, .card-panel, .bills-pane
 }
 
 .charge-dialog.card-month-activity {
-  width: min(44rem, calc(100% - 1rem));
-  max-height: calc(100dvh - 1rem);
+  --activity-visible-rows: 20;
+  width: min(44rem, calc(100% - 1rem - 2 * max(env(safe-area-inset-left, 0px), env(safe-area-inset-right, 0px))));
+  max-height: calc(100dvh - 1rem - 2 * max(env(safe-area-inset-top, 0px), env(safe-area-inset-bottom, 0px)));
+}
+
+@media (max-width: 759px) {
+  .charge-dialog.card-month-activity {
+    --activity-visible-rows: 15;
+    padding: 0.75rem;
+  }
 }
 
 .charge-dialog.card-month-activity[open] {
@@ -308,7 +316,7 @@ body:has(dialog:modal) :is(.workspace, .schedule-panel, .card-panel, .bills-pane
 }
 
 .card-month-activity-list {
-  max-height: calc(var(--charge-header-height) + 20 * var(--charge-row-height) + 1px);
+  max-height: calc(var(--charge-header-height) + var(--activity-visible-rows) * var(--charge-row-height) + 1px);
   min-height: 0;
   overflow: auto;
   overscroll-behavior: contain;
@@ -1285,6 +1293,7 @@ display: none;
   .workspace > .schedule-panel,
   .workspace > .ledgers > :is(.card-panel, .bills-panel) {
     box-sizing: border-box;
+    border-radius: 1.75rem;
     flex: 0 0 100%;
     min-width: 0;
     max-block-size: 100%;

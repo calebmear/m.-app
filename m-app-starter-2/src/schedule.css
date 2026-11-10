@@ -805,15 +805,21 @@ display: none;
 
 @media (max-width: 759px) {
   .app-shell > .workspace {
+    --tile-gutter: 0.5rem;
     display: flex;
     flex-flow: row nowrap;
     align-items: flex-start;
+    box-sizing: border-box;
+    width: 100%;
     min-width: 0;
     max-width: 100%;
+    margin-inline: 0;
+    padding-inline: var(--tile-gutter);
     gap: 0.75rem;
     overflow-x: auto;
     overscroll-behavior-inline: contain;
     scroll-snap-type: x mandatory;
+    scroll-padding-inline: var(--tile-gutter);
   }
 
   .workspace > .ledgers {

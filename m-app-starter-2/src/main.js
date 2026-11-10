@@ -335,8 +335,8 @@ function cardChargeTable(charges, scope, fullActivity = false) {
     const edit = editable ? [
       `<select class="charge-code-edit" name="category-${key}" data-category-code aria-label="Category code for ${vendor}">${optionList(charge.category)}</select>`,
       `<input name="vendor-${key}" value="${vendor}" list="card-vendor-history" maxlength="160" aria-label="Vendor for ${vendor}">`,
-      `<input name="posted-${key}" value="${esc(date)}" placeholder="Pending" maxlength="10" aria-label="Date for ${vendor}">`,
-      `<input name="amount-${key}" value="${amount(charge.amountCents)}" inputmode="decimal" aria-label="Amount for ${vendor}">`,
+      `<input name="posted-${key}" value="${esc(date)}" placeholder="MMDD" inputmode="numeric" maxlength="10" aria-label="Date for ${vendor} (MMDD, blank for pending)">`,
+      `<input name="amount-${key}" value="${amount(charge.amountCents)}" inputmode="text" aria-label="Amount for ${vendor}">`,
     ] : [];
     const cell = (value, index) => `<span class="charge-list-view">${value}</span>${edit[index] ? `<div class="charge-list-edit">${edit[index]}</div>` : ''}`;
     const vendorCell = fullActivity ? cell(vendor, 1) : `
@@ -381,9 +381,9 @@ function cardMarkup() {
   const draftEditor = `<div class="charge-draft-editor">
     <div class="charge-draft-primary">
       <label>Vendor<input name="vendor" list="card-vendor-history" autocomplete="off" maxlength="160" ${disabled()}></label>
-      <label>Amount ($)<input name="amount" inputmode="decimal" placeholder="0.00" ${disabled()}></label>
+      <label>Amount ($)<input name="amount" inputmode="text" placeholder="0.00" ${disabled()}></label>
     </div>
-    <label>Date posted <input name="posted" placeholder="MM/DD" maxlength="10" autocomplete="off" ${disabled()}></label>
+    <label>Date posted <input name="posted" placeholder="MMDD" inputmode="numeric" maxlength="10" autocomplete="off" ${disabled()}></label>
     <button type="button" class="charge-batch-pending" data-action="toggle-charge-pending" aria-pressed="false" ${disabled()}>Pending</button>
     <label>Code
       <span class="charge-draft-code">
@@ -736,7 +736,9 @@ function setSavingsRemoval(editor, removed) {
   editor.querySelector('button').textContent = removed ? 'Undo remove' : 'Remove';
 }
 function parseCardDate(value) {
-  return parsePostedDate(value, selectedMonth.slice(0, 4));
+  const date = String(value ?? '').trim().replace(/^(\d{2})(\d{2})(\d{2}|\d{4})?$/, (_, month, day, year) =>
+    year ? `${month}/${day}/${year}` : `${month}/${day}`);
+  return parsePostedDate(date, selectedMonth.slice(0, 4));
 }
 function signedAmount(value) {
   const cents = toCents(String(value ?? '').trim().replace(/^\+(?=\d)/, '').replace(/^−/, '-'), true);

@@ -1475,10 +1475,16 @@ margin: 0;
   background: #edf2e9;
 }
 
-.schedule-item-form {
-display: grid;
-grid-template-columns: repeat(2, minmax(0, 1fr));
-gap: 0.5rem;
+.schedule-item-dialog .schedule-item-form:not([hidden]) {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+#bill-item-dialog #add-checking-item {
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 100%;
 }
 
 .schedule-item-form > :is(label:first-child, .schedule-item-actions, .schedule-editor-error, .savings-amount-hint) {
@@ -1486,6 +1492,7 @@ grid-column: 1 / -1;
 }
 
 .schedule-item-form > label {
+  display: grid;
   min-inline-size: 0;
   grid-template-columns: minmax(0, 1fr);
 }
@@ -1497,15 +1504,28 @@ grid-column: 1 / -1;
   max-inline-size: 100%;
 }
 
+.schedule-item-dialog .schedule-item-form input[type="date"] {
+  appearance: none;
+  display: block;
+  width: min(100%, 13rem);
+  min-width: 0;
+  max-width: 100%;
+}
+
+.schedule-item-form input[type="date"]::-webkit-date-and-time-value {
+  min-width: 0;
+  text-align: start;
+}
+
 .schedule-item-actions > button {
   min-inline-size: 0;
   white-space: normal;
 }
 
-@media (max-width: 380px) {
-.schedule-item-form {
-  grid-template-columns: minmax(0, 1fr);
-}
+@media (max-width: 759px) {
+  .schedule-item-dialog .schedule-item-form:not([hidden]) {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 /* Display the existing wordmark without its suffix. */

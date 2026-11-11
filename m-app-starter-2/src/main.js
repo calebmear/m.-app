@@ -673,7 +673,7 @@ function billsMarkup() {
         </div>
         <div role="alert" class="schedule-editor-error"></div>
       </form>
-      <form id="add-checking-item" class="inline-form schedule-item-form" data-schedule-item-view="misc" hidden>
+      <form id="add-checking-item" class="schedule-item-form" data-schedule-item-view="misc" hidden>
         <label>Description<input name="name" maxlength="100" placeholder="Venmo, reimbursement…" required ${disabled()}></label>
         <label>Date<input name="date" type="date" min="${selectedMonth}-01" max="${selectedMonth}-${lastDay}" required ${disabled()}></label>
         <label>Amount ($)<input name="amount" placeholder="+100 or -100" aria-describedby="checking-amount-hint" required ${disabled()}></label>

@@ -394,7 +394,7 @@
   max-height: calc(100% - 2rem);
   padding: 1rem;
   border: 1px solid #d5ddd4;
-  border-radius: 0.75rem;
+  border-radius: var(--tile-radius, 2.5rem);
   background: #fff;
   color: inherit;
   overscroll-behavior: contain;
@@ -411,19 +411,22 @@ body:has(dialog:modal) :is(.workspace, .tile-scroll, .charge-list-scroll, .card-
   background: rgb(20 33 25 / 45%);
 }
 
+:is(.charge-dialog, .schedule-item-dialog) button {
+  border-radius: var(--tile-inner-radius, 1.5rem);
+}
+
 .charge-dialog h3 {
   margin: 0 0 0.65rem;
 }
 
 .charge-dialog.card-month-activity {
-  --activity-visible-rows: 20;
+  --activity-visible-rows: 10;
   width: min(44rem, calc(100% - 1rem - 2 * max(env(safe-area-inset-left, 0px), env(safe-area-inset-right, 0px))));
   max-height: calc(100dvh - 1rem - 2 * max(env(safe-area-inset-top, 0px), env(safe-area-inset-bottom, 0px)));
 }
 
 @media (max-width: 759px) {
   .charge-dialog.card-month-activity {
-    --activity-visible-rows: 15;
     max-height: calc(min(100dvh, var(--budget-viewport-height, 100dvh)) - 1rem - 2 * max(env(safe-area-inset-top, 0px), env(safe-area-inset-bottom, 0px)));
     padding: 0.75rem;
   }
@@ -458,6 +461,11 @@ body:has(dialog:modal) :is(.workspace, .tile-scroll, .charge-list-scroll, .card-
 
 .card-month-activity-heading h3 {
   text-transform: uppercase;
+}
+
+dialog button:is([data-action="close-charge-dialog"], [data-action="close-item-dialog"]) {
+  border-color: transparent;
+  background: transparent;
 }
 
 .card-month-activity .card-month-activity-cycle {
@@ -518,17 +526,6 @@ body:has(dialog:modal) :is(.workspace, .tile-scroll, .charge-list-scroll, .card-
   margin: 0;
 }
 
-.charge-batch-pending {
-  align-self: end;
-  min-height: var(--charge-control-height);
-  padding-inline: 0.375rem;
-}
-
-.charge-batch-pending[aria-pressed="true"] {
-  background: var(--accent, #234635);
-  color: #fff;
-}
-
 .charge-draft-list {
   display: grid;
   gap: 0.25rem;
@@ -579,7 +576,7 @@ body:has(dialog:modal) :is(.workspace, .tile-scroll, .charge-list-scroll, .card-
   --charge-amount-width: clamp(5.25rem, 22vw, 6.5rem);
   --charge-field-gap: 0.375rem;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) var(--charge-amount-width) 3.5rem 2.75rem;
+  grid-template-columns: 5.5rem minmax(0, 1fr) 2.75rem;
   align-items: end;
   gap: var(--charge-field-gap);
   margin-top: 0.5rem;
@@ -588,12 +585,13 @@ body:has(dialog:modal) :is(.workspace, .tile-scroll, .charge-list-scroll, .card-
 .charge-draft-primary {
   grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) var(--charge-amount-width);
+  grid-template-columns: minmax(0, 1fr) calc(var(--charge-amount-width) + 1.5rem);
   gap: var(--charge-field-gap);
 }
 
 .charge-draft-editor > label,
 .charge-draft-primary > label,
+.charge-draft-amount,
 .charge-draft-flag {
   display: grid;
   grid-template-rows: auto var(--charge-control-height);
@@ -602,45 +600,34 @@ body:has(dialog:modal) :is(.workspace, .tile-scroll, .charge-list-scroll, .card-
   color: var(--muted, #506158);
   font-size: 0.875rem;
   line-height: 1.25;
+  text-align: start;
 }
 
-.charge-draft-flag {
-  text-align: center;
-}
-
-.charge-draft-code {
+.charge-amount-control {
   position: relative;
+  min-width: 0;
 }
 
-.charge-draft-code select {
-  appearance: none;
-  color: transparent;
+.charge-amount-control > input {
+  padding-inline-end: 1.85rem;
 }
 
-.charge-draft-code option {
-  color: var(--ink, #192a20);
-}
-
-.charge-draft-code-value {
+.charge-amount-control > button {
   position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  padding-inline-end: 0.75rem;
-  color: var(--ink, #192a20);
-  font-size: 1rem;
-  pointer-events: none;
+  inset-block: 1px;
+  inset-inline-end: 1px;
+  width: 1.75rem;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  line-height: 1;
 }
 
-.charge-draft-code-value::after {
-  content: "";
-  position: absolute;
-  inset-inline-end: 0.6rem;
-  width: 0.35rem;
-  height: 0.35rem;
-  border: solid currentColor;
-  border-width: 0 1px 1px 0;
-  transform: rotate(45deg);
+.charge-amount-control > button[aria-pressed="true"] {
+  background: #edf2e9;
+  color: #244e37;
 }
 
 .charge-draft-flag .charge-important-toggle {
@@ -684,12 +671,9 @@ body:has(dialog:modal) :is(.workspace, .tile-scroll, .charge-list-scroll, .card-
   padding-inline: 0.375rem;
 }
 
-.charge-draft-editor > label:has(> input[name="posted"]:enabled:not(:placeholder-shown)) {
-  grid-column: span 2;
-}
-
-.charge-draft-editor > label:has(> input[name="posted"]:enabled:not(:placeholder-shown)) + .charge-batch-pending {
-  display: none;
+.charge-draft-date > input[name="posted"] {
+  justify-self: center;
+  text-align: center;
 }
 
 .charge-draft-actions {
@@ -753,8 +737,14 @@ body:has(dialog:modal) :is(.workspace, .tile-scroll, .charge-list-scroll, .card-
   margin: 0.25rem 0 0.5rem;
 }
 
+:where(#edit-bills:not(.is-editing)) > .tile-scroll {
+  max-block-size: calc(0.25rem + 9 * (2.75rem + 2 * var(--bill-row-padding, 0.35rem) + 1px));
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+}
+
 .bill-list > li {
-  padding: 0.35rem 0;
+  padding: var(--bill-row-padding, 0.35rem) 0;
   border-bottom: 1px solid #e4e8e0;
 }
 
@@ -937,8 +927,8 @@ body:has(dialog:modal) :is(.workspace, .tile-scroll, .charge-list-scroll, .card-
     background: var(--paper, #fff);
   }
 
-.bill-list > li {
-  padding-block: 0.55rem;
+#edit-bills {
+  --bill-row-padding: 0.55rem;
 }
 
 .bill-summary {
@@ -1282,7 +1272,6 @@ display: none;
 width: min(27rem, calc(100% - 2rem));
 }
 
-.schedule-item-heading,
 .schedule-item-actions {
 display: flex;
 align-items: center;
@@ -1291,7 +1280,21 @@ gap: 0.5rem;
 }
 
 .schedule-item-heading {
-margin-bottom: 0.75rem;
+  display: grid;
+  grid-template-columns: 2.25rem minmax(0, 1fr) 2.25rem;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  text-align: center;
+}
+
+.schedule-item-heading > :first-child {
+  grid-column: 2;
+}
+
+:is(.charge-dialog, .schedule-item-dialog) :is(h3, h4),
+#entry-delete-details {
+  text-align: center;
 }
 
 .schedule-item-heading h3 {

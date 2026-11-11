@@ -378,18 +378,20 @@ function cardCycleDates(card) {
 function cardMarkup() {
   const payments = cardStatementPayments(budget);
   const unassigned = budget.charges.filter(charge => !charge.card);
-  const draftEditor = `<div class="charge-draft-editor">
+  const draftEditor = cardId => `<div class="charge-draft-editor">
     <div class="charge-draft-primary">
       <label>Vendor<input name="vendor" list="card-vendor-history" autocomplete="off" maxlength="160" ${disabled()}></label>
-      <label>Amount ($)<input name="amount" inputmode="text" placeholder="0.00" ${disabled()}></label>
+      <div class="charge-draft-amount">
+        <label for="charge-draft-amount-${cardId}">Amount ($)</label>
+        <div class="charge-amount-control">
+          <input id="charge-draft-amount-${cardId}" name="amount" inputmode="decimal" placeholder="0.00" ${disabled()}>
+          <button type="button" data-action="flip-charge-sign" aria-label="Refund amount" aria-pressed="false" ${disabled()}>±</button>
+        </div>
+      </div>
     </div>
-    <label>Date posted <input name="posted" placeholder="MMDD" inputmode="numeric" maxlength="10" autocomplete="off" ${disabled()}></label>
-    <button type="button" class="charge-batch-pending" data-action="toggle-charge-pending" aria-pressed="false" ${disabled()}>Pending</button>
+    <label class="charge-draft-date">Posted date<input name="posted" aria-label="Posted date (optional, MMDD)" placeholder="Pending" inputmode="numeric" maxlength="10" autocomplete="off" ${disabled()}></label>
     <label>Code
-      <span class="charge-draft-code">
-        <select name="category" ${disabled()}>${optionList()}</select>
-        <span class="charge-draft-code-value" aria-hidden="true">—</span>
-      </span>
+      <select name="category" ${disabled()}>${optionList()}</select>
     </label>
     <div class="charge-draft-flag">
       <span>Flag</span>
@@ -460,7 +462,7 @@ function cardMarkup() {
           <button type="button" data-action="close-charge-dialog" aria-label="Close add charges">×</button>
         </div>
         <form id="add-charges-${card.id}" class="charge-batch-form">
-          ${draftEditor}
+          ${draftEditor(card.id)}
           <div class="charge-draft-list" role="group" aria-label="Charges in this batch"></div>
           <div class="charge-batch-actions">
             <div role="alert" class="schedule-editor-error"></div>
@@ -577,7 +579,7 @@ function billsMarkup() {
   return `<section class="panel bills-panel">
     <form id="edit-bills" novalidate>
       <div class="panel-heading">
-        <div><h2>Checking bills</h2><p class="hint">${bills.filter(bill => bill.paid).length} of ${bills.length} paid · ${money(subtotal)} total · ${money(totals(budget).remainingBills)} still to clear</p></div>
+        <div><h2>Bills</h2><p class="hint">${bills.filter(bill => bill.paid).length} of ${bills.length} paid · ${money(subtotal)} total · ${money(totals(budget).remainingBills)} still to clear</p></div>
         ${canEdit ? panelEditButton('edit-bills', 'Edit checking bills', 'bill-edit-button') : ''}
       </div>
       <div class="tile-scroll" role="region" aria-label="Checking entries" tabindex="0">
@@ -751,20 +753,16 @@ function readChargeDraft(form) {
   const amountInput = form.elements.amount.value.trim();
   const category = form.elements.category.value;
   const important = form.elements.important.checked;
-  if (!vendor && !amountInput && !category && !important) return null;
+  if (!vendor && (!amountInput || amountInput === '-') && !category && !important) return null;
   if (!vendor) throw new Error('Enter a vendor.');
   const amountCents = toCents(amountInput, true);
   if (!amountCents) throw new Error('Enter a nonzero amount.');
   if (!Object.values(CC_CATEGORY_CODES).includes(category)) throw new Error('Choose a category code.');
-  const dateInput = form.elements.posted;
-  const postedDate = dateInput.disabled ? null : parseCardDate(dateInput.value);
-  if (!dateInput.disabled && !postedDate) throw new Error('Enter a date or select Pending.');
+  const postedDate = parseCardDate(form.elements.posted.value);
   return { vendor, amountCents, category, important, postedDate };
 }
 function updateChargeTotals(form) {
-  const category = form.elements.category.value;
-  const code = Object.entries(CC_CATEGORY_CODES).find(([, name]) => name === category)?.[0] ?? '—';
-  form.querySelector('.charge-draft-code-value').textContent = code;
+  form.querySelector('[data-action="flip-charge-sign"]').setAttribute('aria-pressed', String(form.elements.amount.value.trim().startsWith('-')));
   const rows = Array.from(form.querySelectorAll('.charge-draft-item'));
   const batch = rows.map(row => queuedCharges.get(row));
   let incomplete = false;
@@ -790,10 +788,7 @@ function setChargeEditor(form, row = null) {
   const charge = queuedCharges.get(row);
   if (row) {
     row.setAttribute('aria-pressed', 'true');
-    const pending = !charge.postedDate;
-    form.elements.posted.disabled = pending;
-    form.elements.posted.value = pending ? '' : `${charge.postedDate.slice(5).replace('-', '/')}/${charge.postedDate.slice(0, 4)}`;
-    editor.querySelector('[data-action="toggle-charge-pending"]').setAttribute('aria-pressed', String(pending));
+    form.elements.posted.value = charge.postedDate ? `${charge.postedDate.slice(5).replace('-', '/')}/${charge.postedDate.slice(0, 4)}` : '';
   }
   form.elements.vendor.value = charge?.vendor ?? '';
   form.elements.amount.value = charge ? amount(charge.amountCents) : '';
@@ -1268,12 +1263,11 @@ root.addEventListener('click', async event => {
     if (queueCharge(button.form, true)) button.form.elements.vendor.focus();
     return;
   }
-  if (action === 'toggle-charge-pending') {
-    const pending = button.getAttribute('aria-pressed') !== 'true';
-    button.setAttribute('aria-pressed', String(pending));
-    button.form.elements.posted.disabled = pending;
-    button.form.querySelector('.schedule-editor-error').textContent = '';
-    updateChargeTotals(button.form);
+  if (action === 'flip-charge-sign') {
+    const field = button.form.elements.amount;
+    const value = field.value.trim();
+    field.value = value.startsWith('-') ? value.slice(1) : '-' + value;
+    field.dispatchEvent(new Event('input', { bubbles: true }));
     return;
   }
   if (action === 'edit-charge-draft') {

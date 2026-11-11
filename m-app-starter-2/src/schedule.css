@@ -1511,6 +1511,21 @@ display: none;
     overscroll-behavior-y: contain;
   }
 
+  .app-shell:has(.charge-list.is-editing) {
+    position: fixed;
+    inset: var(--budget-viewport-top, 0px) 0 auto;
+    margin: 0;
+  }
+
+  .app-shell:has(.charge-list.is-editing)::before {
+    display: none;
+  }
+
+  .app-shell:has(.charge-list.is-editing) > header {
+    position: static;
+    flex-shrink: 0;
+  }
+
   .workspace .card-panel:has(.charge-list.is-editing) {
     overflow-y: auto;
   }

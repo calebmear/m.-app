@@ -16,8 +16,14 @@ if (visualViewport) {
       root.style.removeProperty('--budget-viewport-height');
     }
   };
+  const updateViewportTop = () => {
+    root.style.setProperty('--budget-viewport-top', `${visualViewport.scale === 1 ? visualViewport.offsetTop : 0}px`);
+  };
   visualViewport.addEventListener('resize', updateViewportHeight);
+  visualViewport.addEventListener('resize', updateViewportTop);
+  visualViewport.addEventListener('scroll', updateViewportTop);
   updateViewportHeight();
+  updateViewportTop();
 }
 const headerSizeObserver = new ResizeObserver(([{ target }]) => {
   root.style.setProperty('--budget-header-height', target.offsetHeight + 'px');

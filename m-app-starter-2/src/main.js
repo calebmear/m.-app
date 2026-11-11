@@ -8,6 +8,28 @@ import { connectMonthNavigation, monthNavigationMarkup } from './month-navigatio
 
 const root = document.getElementById('app');
 const visualViewport = window.visualViewport;
+let chargeFocusFrame;
+function keepChargeFieldVisible() {
+  if (!window.matchMedia('(max-width: 759px)').matches) return;
+  cancelAnimationFrame(chargeFocusFrame);
+  chargeFocusFrame = requestAnimationFrame(() => {
+    const field = document.activeElement;
+    if (!field?.matches('.charge-list.is-editing .charge-list-edit :is(input, select)')) return;
+    const list = field.closest('.charge-list-scroll');
+    const panel = field.closest('.card-panel');
+    const row = field.closest('tr');
+    for (const scroller of [list, panel]) {
+      const bounds = scroller.getBoundingClientRect();
+      const top = bounds.top + (scroller === list ? list.querySelector('thead').offsetHeight : 0);
+      const rect = row.getBoundingClientRect();
+      if (rect.bottom > bounds.bottom) scroller.scrollTop += rect.bottom - bounds.bottom;
+      else if (rect.top < top) scroller.scrollTop += rect.top - top;
+    }
+  });
+}
+root.addEventListener('focusin', event => {
+  if (event.target.matches('.charge-list.is-editing .charge-list-edit :is(input, select)')) keepChargeFieldVisible();
+});
 if (visualViewport) {
   const updateViewportHeight = () => {
     if (visualViewport.scale === 1 && visualViewport.height > 0) {
@@ -18,6 +40,7 @@ if (visualViewport) {
   };
   const updateViewportTop = () => {
     root.style.setProperty('--budget-viewport-top', `${visualViewport.scale === 1 ? visualViewport.offsetTop : 0}px`);
+    keepChargeFieldVisible();
   };
   visualViewport.addEventListener('resize', updateViewportHeight);
   visualViewport.addEventListener('resize', updateViewportTop);
@@ -39,6 +62,7 @@ let rowTouchStart = null;
 let knownVendors = [];
 let budget = null, revision = 0, preferences = emptyPreferences();
 let repository = null, activeUser = null, busy = false, dirty = false, error = '', notice = '', loading = true, loadToken = 0;
+let hasOpenedBudget = false;
 const disabled = () => busy || budget?.closed ? 'disabled' : '';
 const negative = value => value < 0 ? 'negative' : '';
 const amount = value => (value / 100).toFixed(2);
@@ -652,11 +676,52 @@ function restoreChargeScroll(list, position) {
     : position.top;
 }
 
+function showOpeningScreen() {
+  if (root.querySelector('.opening-screen')) return;
+  root.innerHTML = '<div class="opening-screen" role="status" aria-label="Loading budget"><span aria-hidden="true">m.</span></div>';
+}
+
+function finishOpeningScreen(screen) {
+  const brand = root.querySelector('.topline .brand');
+  if (!screen || !brand || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  root.append(screen);
+  screen.classList.add('is-leaving');
+  const logo = screen.firstElementChild;
+  const brandStyle = getComputedStyle(brand);
+  logo.style.fontFamily = brandStyle.fontFamily;
+  logo.style.fontWeight = brandStyle.fontWeight;
+  logo.style.letterSpacing = brandStyle.letterSpacing;
+  const from = logo.getBoundingClientRect();
+  const to = brand.getBoundingClientRect();
+  const x = to.left + to.width / 2 - from.left - from.width / 2;
+  const y = to.top + to.height / 2 - from.top - from.height / 2;
+  const scale = parseFloat(brandStyle.fontSize) / parseFloat(getComputedStyle(logo).fontSize);
+  const timing = { duration: 720, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'forwards' };
+  brand.classList.add('opening-brand');
+  screen.animate({ backgroundColor: ['#15392d', 'transparent'] }, timing);
+  const transition = logo.animate([
+    { transform: 'none', color: '#f6fbf7' },
+    { transform: `translate(${x}px, ${y}px) scale(${scale})`, color: brandStyle.color },
+  ], timing);
+  const finish = () => {
+    screen.remove();
+    brand.classList.remove('opening-brand');
+  };
+  transition.finished.then(finish, finish);
+}
+
 function render() {
   headerSizeObserver.disconnect();
   scheduleVisibilityObserver?.disconnect();
   if (supabase && !activeUser) return renderAuth();
-  if (!budget) { root.innerHTML = `<main class="auth"><div class="wordmark">m.</div><p>${loading ? 'Opening your month…' : esc(error || 'Could not open your budget.')}</p>${!loading ? '<button data-action="reload">Try again</button>' : ''}</main>`; return; }
+  if (!budget) {
+    if (loading && !hasOpenedBudget) showOpeningScreen();
+    else if (loading) root.innerHTML = '<main class="auth" role="status" aria-label="Loading budget"><div class="wordmark" aria-hidden="true">m.</div></main>';
+    else root.innerHTML = `<main class="auth"><div class="wordmark">m.</div><p>${esc(error || 'Could not open your budget.')}</p><button data-action="reload">Try again</button></main>`;
+    return;
+  }
+  const openingScreen = hasOpenedBudget ? null : root.querySelector('.opening-screen');
+  hasOpenedBudget = true;
   const tileScrollSelector = '.workspace .tile-scroll';
   const enteringSchedule = !root.querySelector('.schedule-panel');
   const tileScroll = root.querySelector('.workspace')?.scrollLeft ?? 0;
@@ -693,6 +758,7 @@ function render() {
     const position = chargePositions.get(form.dataset.chargeScope);
     if (list && position) restoreChargeScroll(list, position);
   }
+  finishOpeningScreen(openingScreen);
 }
 function scrollToLatestCharges() {
   for (const list of root.querySelectorAll('.card-tab-panel:not([hidden]) .charge-list-scroll')) {
@@ -1382,6 +1448,7 @@ root.addEventListener('click', async event => {
 });
 window.addEventListener('beforeunload', event => { if (dirty || busy) { event.preventDefault(); event.returnValue = ''; } });
 if (supabase) {
+  showOpeningScreen();
   supabase.auth.getSession().then(({ data, error: cause }) => { if (cause) { error = cause.message; loading = false; renderAuth(); } else start(data.session); });
   supabase.auth.onAuthStateChange((_event, session) => { if ((session?.user?.id ?? null) !== (activeUser?.id ?? null)) setTimeout(() => start(session), 0); });
 } else start(null);

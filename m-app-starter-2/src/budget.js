@@ -166,14 +166,17 @@ export function eventsForMonth(document) {
       day, amountCents, kind: 'checking', priority: amountCents > 0 ? 0 : 1,
     })),
     ...document.bills.map(b => ({ day: b.day, amountCents: -b.amountCents, kind: 'bill', priority: 1 })),
-    { day: document.statement.paymentDay, amountCents: -document.statement.amountCents, kind: 'statement', priority: 1 },
+    { day: document.statement.paymentDay, amountCents: -document.statement.amountCents, kind: 'statement', priority: 1, unpaidCardActivity: !document.statement.paid },
     ...(document.cardPayments ?? []).map(payment => ({
       day: payment.day, amountCents: -payment.amountCents, kind: 'statement', priority: 1,
     })),
     ...cardStatementPayments(document).filter(card => card.amountCents).map(card => ({
-      day: card.dueDay, amountCents: -card.amountCents, kind: 'statement', priority: 1,
+      day: card.dueDay, amountCents: -card.amountCents, kind: 'statement', priority: 1, unpaidCardActivity: true,
     })),
-    ...document.charges.filter(c => !c.card).map(c => ({ day: c.postedDate?.startsWith(document.month + '-') ? Number(c.postedDate.slice(-2)) : reserveDay(document), amountCents: -c.amountCents, kind: 'card', priority: 2 }))
+    ...document.charges.filter(c => !c.card).map(c => ({
+      day: c.postedDate?.startsWith(document.month + '-') ? Number(c.postedDate.slice(-2)) : reserveDay(document),
+      amountCents: -c.amountCents, kind: 'card', priority: 2, unpaidCardActivity: true,
+    })),
   ];
   return events.sort((a, b) => a.day - b.day || a.priority - b.priority);
 }

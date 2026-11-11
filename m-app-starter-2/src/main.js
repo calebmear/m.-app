@@ -1,5 +1,6 @@
 import './styles.css';
 import './schedule.css';
+import { eventsForMonth } from './budget.js';
 import { CATEGORIES, CC_CATEGORY_CODES, CARDS, cardStatementCycle, cardStatementPayments, copy, id, money, currentMonth, validMonth, daysInMonth, monthLabel, shortMonth, toCents, parsePostedDate, displayDate, validateDay, emptyPreferences, createMonth, hasLegacyPaycheckDefaults, sortedCharges, totals, compactSchedule, etsyDepositDays } from './budget.js';
 import { createLocalRepository, createCloudRepository } from './repository.js';
 import { supabase } from './supabase.js';
@@ -80,10 +81,13 @@ function panelEditButton(action, label, stateClass) {
     </svg>
   </button>`;
 }
-function panelAddButton(dialogId, label) {
-  return `<button type="button" class="panel-add-button" data-action="open-item-dialog" aria-label="${label}" aria-haspopup="dialog" aria-controls="${dialogId}" ${disabled()}>
+function panelAddMenu(menuId, label, choices) {
+  return `<button type="button" class="panel-add-button" data-action="position-add-menu" aria-label="${label}" popovertarget="${menuId}" ${disabled()}>
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-  </button>`;
+  </button>
+  <div id="${menuId}" class="panel-add-menu" popover aria-label="${label}">
+    ${choices.map(([title, dialogId, view]) => `<button type="button" data-action="open-item-dialog" aria-haspopup="dialog" aria-controls="${dialogId}" data-item="${view}">${title}</button>`).join('')}
+  </div>`;
 }
 function optionList(selected = '') {
   const placeholder = `<option value="" disabled hidden ${!selected || selected === 'Uncategorized' ? 'selected' : ''}>—</option>`;
@@ -122,20 +126,19 @@ function scheduleItemDialogMarkup(lastDay) {
   if (budget.closed) return '';
   const dateLimits = `min="${selectedMonth}-01" max="${selectedMonth}-${lastDay}"`;
   const actions = label => `<div class="schedule-item-actions">
-    <button type="button" data-action="choose-schedule-item" data-item="choice">Back</button>
+    <button type="button" data-action="close-item-dialog">Cancel</button>
     <button class="primary" type="submit" ${disabled()}>${label}</button>
   </div>
   <div role="alert" class="schedule-editor-error"></div>`;
-  return `${panelAddButton('schedule-item-dialog', 'Add a schedule item')}
+  return `${panelAddMenu('schedule-add-menu', 'Add a schedule item', [
+    ['Income', 'schedule-item-dialog', 'income'],
+    ['Savings', 'schedule-item-dialog', 'savings'],
+    ['Miscellaneous', 'bill-item-dialog', 'misc'],
+  ])}
   <dialog id="schedule-item-dialog" class="schedule-item-dialog" aria-labelledby="schedule-item-title">
     <div class="schedule-item-heading">
       <h3 id="schedule-item-title" tabindex="-1">Add to schedule</h3>
       <button type="button" data-action="close-item-dialog" aria-label="Close schedule dialog">×</button>
-    </div>
-    <div class="schedule-item-choices" data-schedule-item-view="choice">
-      <button type="button" data-action="choose-schedule-item" data-item="income">+ Income</button>
-      <button type="button" data-action="choose-schedule-item" data-item="savings">+ Savings</button>
-      <button type="button" data-action="open-item-dialog" aria-controls="bill-item-dialog" data-checking-view="misc">+ Misc checking</button>
     </div>
     <form id="add-pay" class="inline-form schedule-item-form" data-schedule-item-view="income" hidden>
       <label>Name<input name="name" required maxlength="80" placeholder="Income name"></label>
@@ -164,6 +167,9 @@ function scheduleMarkup() {
     scheduleSectionDateKey = dateKey;
   }
   const today = selectedMonth === year + '-' + month ? Number(day) : 0;
+  const estimatedBalance = today ? eventsForMonth(budget)
+    .filter(event => event.day <= today && !event.unpaidCardActivity)
+    .reduce((balance, event) => balance + event.amountCents, budget.openingCents) : null;
   let sectionStart = 1;
   let sectionRows = [];
   const rowGroups = [];
@@ -302,6 +308,7 @@ function scheduleMarkup() {
     <form id="edit-schedule">
     <div class="panel-heading">
       <h2>Monthly schedule</h2>
+      ${estimatedBalance === null ? '' : `<p class="hint schedule-balance-estimate">Est. BOA balance today · <strong>${money(estimatedBalance)}</strong></p>`}
       ${budget.closed ? `<button type="button" data-action="reopen-month" ${busy || dirty ? 'disabled' : ''}>Reopen month</button>` : `${panelEditButton('edit-schedule', 'Edit monthly schedule', 'schedule-view-value')}
       <div class="schedule-edit-controls schedule-editor-actions">
         ${hasBothPayTypes ? '' : '<button type="button" data-action="load-paycheck-template">Use C/A template</button>'}
@@ -404,6 +411,24 @@ function cardChargeTable(charges, scope, fullActivity = false) {
 function cardCycleDates(card) {
   const cycle = cardStatementCycle(selectedMonth, card.dueDay);
   return displayDate(cycle.from) + ' to ' + displayDate(cycle.until);
+}
+function cardExpenseSummary(charges) {
+  if (!charges.length) return '<p class="hint">No charges recorded for this card.</p>';
+  const totalsByCategory = new Map();
+  const codesByCategory = new Map(Object.entries(CC_CATEGORY_CODES).map(([code, category]) => [category, code]));
+  let total = 0;
+  for (const charge of charges) {
+    const category = charge.category || 'Uncategorized';
+    totalsByCategory.set(category, (totalsByCategory.get(category) ?? 0) + charge.amountCents);
+    total += charge.amountCents;
+  }
+  const rows = [...totalsByCategory].map(([category, cents]) => ({ category, cents, code: codesByCategory.get(category) }))
+    .sort((a, b) => b.cents - a.cents || (a.code ?? 'ZZ').localeCompare(b.code ?? 'ZZ') || a.category.localeCompare(b.category));
+  return `<table class="card-expense-summary" aria-label="Expenses by code">
+    <thead><tr><th scope="col">Code</th><th scope="col">Category</th><th scope="col">Total</th></tr></thead>
+    <tbody>${rows.map(({ category, cents, code }) => `<tr><td>${code ?? '—'}</td><th scope="row">${esc(category)}</th><td>${money(cents)}</td></tr>`).join('')}</tbody>
+    <tfoot><tr><th scope="row" colspan="2">Total expenses</th><td>${money(total)}</td></tr></tfoot>
+  </table>`;
 }
 function cardMarkup() {
   const payments = cardStatementPayments(budget);
@@ -510,6 +535,10 @@ function cardMarkup() {
         <path d="M6 3h8l4 4v14H6zM14 3v5h4M9 12h6M9 16h6"/>
       </svg>
     </button>
+    <button type="button" class="card-month-activity-button card-expense-summary-button" data-action="open-card-expense-summary"
+      aria-label="View expenses by code for the selected card" aria-haspopup="dialog" aria-controls="card-month-activity">
+      <span class="card-expense-summary-icon" aria-hidden="true"><span></span><span></span><span></span></span>
+    </button>
     <div class="card-tabs" role="tablist" aria-label="Credit cards">${tabs}</div>
     ${panels}
     <dialog id="card-month-activity" class="charge-dialog card-month-activity" aria-labelledby="card-month-activity-title">
@@ -518,7 +547,7 @@ function cardMarkup() {
           <h3 id="card-month-activity-title"></h3>
           <p class="hint card-month-activity-cycle" data-activity-cycle></p>
         </div>
-        <button type="button" data-action="close-charge-dialog" aria-label="Close full card activity">×</button>
+        <button type="button" data-action="close-charge-dialog" aria-label="Close card details">×</button>
       </div>
       <div class="card-month-activity-list" role="region" aria-label="Full credit card transactions" tabindex="0"></div>
     </dialog>
@@ -625,15 +654,14 @@ function billsMarkup() {
         <button type="submit" class="primary" ${disabled()}>Save changes</button>
       </div>` : ''}
     </form>
-    ${budget.closed ? '' : `${panelAddButton('bill-item-dialog', 'Add a checking entry')}
+    ${budget.closed ? '' : `${panelAddMenu('bills-add-menu', 'Add a checking entry', [
+      ['Bill', 'bill-item-dialog', 'bill'],
+      ['Miscellaneous', 'bill-item-dialog', 'misc'],
+    ])}
     <dialog id="bill-item-dialog" class="schedule-item-dialog" aria-labelledby="bill-item-title">
       <div class="schedule-item-heading">
         <h3 id="bill-item-title">Add to checking</h3>
         <button type="button" data-action="close-item-dialog" aria-label="Close bill dialog">×</button>
-      </div>
-      <div class="schedule-item-choices" data-schedule-item-view="checking">
-        <button type="button" data-action="choose-schedule-item" data-item="bill">+ Bill</button>
-        <button type="button" data-action="choose-schedule-item" data-item="misc">+ Misc checking</button>
       </div>
       <form id="add-bill" class="inline-form schedule-item-form" data-schedule-item-view="bill" hidden>
         <label>Bill name<input name="name" maxlength="100" placeholder="Mortgage, water…" required ${disabled()}></label>
@@ -829,8 +857,7 @@ function scheduleItemDay(date) {
 }
 function setScheduleItemView(dialog, view) {
   const title = dialog.querySelector('h3');
-  title.textContent = { choice: 'Add to schedule', income: 'Add income', savings: 'Add savings',
-    checking: 'Add to checking', bill: 'Add a bill', misc: 'Add misc checking' }[view];
+  title.textContent = { income: 'Add income', savings: 'Add savings', bill: 'Add a bill', misc: 'Add miscellaneous item' }[view];
   for (const panel of dialog.querySelectorAll('[data-schedule-item-view]')) {
     panel.hidden = panel.dataset.scheduleItemView !== view;
   }
@@ -1284,21 +1311,26 @@ root.addEventListener('click', async event => {
     dialog.showModal();
     return;
   }
+  if (action === 'position-add-menu') {
+    const menu = document.getElementById(button.getAttribute('popovertarget'));
+    const bounds = button.getBoundingClientRect();
+    const viewportHeight = document.documentElement.clientHeight;
+    const openAbove = viewportHeight - bounds.bottom < 170 && bounds.top > viewportHeight - bounds.bottom;
+    menu.style.setProperty('--add-menu-left', `${bounds.left}px`);
+    menu.style.top = openAbove ? 'auto' : `${bounds.bottom + 4}px`;
+    menu.style.bottom = openAbove ? `${viewportHeight - bounds.top + 4}px` : 'auto';
+    return;
+  }
   if (action === 'open-item-dialog') {
     const dialog = document.getElementById(button.getAttribute('aria-controls'));
-    button.closest('dialog')?.close();
+    button.closest('.panel-add-menu').hidePopover();
     for (const form of dialog.querySelectorAll('form')) {
       form.reset();
       delete form.dataset.debitDayChosen;
       form.querySelector('.schedule-editor-error').textContent = '';
     }
-    if (dialog.id === 'schedule-item-dialog') setScheduleItemView(dialog, 'choice');
-    if (dialog.id === 'bill-item-dialog') setScheduleItemView(dialog, button.dataset.checkingView ?? 'checking');
+    setScheduleItemView(dialog, button.dataset.item);
     dialog.showModal();
-    return;
-  }
-  if (action === 'choose-schedule-item') {
-    setScheduleItemView(button.closest('dialog'), button.dataset.item);
     return;
   }
   if (action === 'close-item-dialog') {
@@ -1313,13 +1345,16 @@ root.addEventListener('click', async event => {
     button.closest('dialog').close();
     return;
   }
-  if (action === 'open-card-month-activity') {
+  if (action === 'open-card-month-activity' || action === 'open-card-expense-summary') {
     const card = cardTabs.find(card => card.id === activeCard);
+    const charges = budget.charges.filter(charge => charge.card === card.id);
+    const summary = action === 'open-card-expense-summary';
     const dialog = root.querySelector('#card-month-activity');
-    dialog.querySelector('h3').textContent = card.name + ' activity';
+    dialog.querySelector('h3').textContent = card.name + (summary ? ' expense summary' : ' activity');
     dialog.querySelector('[data-activity-cycle]').textContent = 'Statement cycle · ' + cardCycleDates(card);
     const list = dialog.querySelector('.card-month-activity-list');
-    list.innerHTML = cardChargeTable(budget.charges.filter(charge => charge.card === card.id), card.id, true);
+    list.setAttribute('aria-label', summary ? 'Credit card expenses by code' : 'Full credit card transactions');
+    list.innerHTML = summary ? cardExpenseSummary(charges) : cardChargeTable(charges, card.id, true);
     dialog.showModal();
     list.scrollTop = 0;
     return;

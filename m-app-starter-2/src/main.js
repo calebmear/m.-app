@@ -308,7 +308,7 @@ function scheduleMarkup() {
     <form id="edit-schedule">
     <div class="panel-heading">
       <h2>Monthly schedule</h2>
-      ${estimatedBalance === null ? '' : `<p class="hint schedule-balance-estimate">Est. BOA balance today · <strong>${money(estimatedBalance)}</strong></p>`}
+      ${estimatedBalance === null ? '' : `<p class="hint schedule-balance-estimate">Est. BOA balance today (${Number(month)}/${today}) · <strong>${money(estimatedBalance)}</strong></p>`}
       ${budget.closed ? `<button type="button" data-action="reopen-month" ${busy || dirty ? 'disabled' : ''}>Reopen month</button>` : `${panelEditButton('edit-schedule', 'Edit monthly schedule', 'schedule-view-value')}
       <div class="schedule-edit-controls schedule-editor-actions">
         ${hasBothPayTypes ? '' : '<button type="button" data-action="load-paycheck-template">Use C/A template</button>'}
@@ -1350,7 +1350,7 @@ root.addEventListener('click', async event => {
     const charges = budget.charges.filter(charge => charge.card === card.id);
     const summary = action === 'open-card-expense-summary';
     const dialog = root.querySelector('#card-month-activity');
-    dialog.querySelector('h3').textContent = card.name + (summary ? ' expense summary' : ' activity');
+    dialog.querySelector('h3').textContent = card.name + (summary ? ' summary' : ' activity');
     dialog.querySelector('[data-activity-cycle]').textContent = 'Statement cycle · ' + cardCycleDates(card);
     const list = dialog.querySelector('.card-month-activity-list');
     list.setAttribute('aria-label', summary ? 'Credit card expenses by code' : 'Full credit card transactions');

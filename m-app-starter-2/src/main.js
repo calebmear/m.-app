@@ -678,15 +678,16 @@ function restoreChargeScroll(list, position) {
 
 function showOpeningScreen() {
   if (root.querySelector('.opening-screen')) return;
-  root.innerHTML = '<div class="opening-screen" role="status" aria-label="Loading budget"><span aria-hidden="true">m.</span></div>';
+  root.innerHTML = '<div class="opening-screen" role="status" aria-label="Loading budget"><div class="opening-backdrop" aria-hidden="true"></div><span aria-hidden="true">m.</span></div>';
 }
 
 function finishOpeningScreen(screen) {
   const brand = root.querySelector('.topline .brand');
   if (!screen || !brand || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
   root.append(screen);
+  const logo = screen.lastElementChild;
+  const logoOpacity = getComputedStyle(logo).opacity;
   screen.classList.add('is-leaving');
-  const logo = screen.firstElementChild;
   const brandStyle = getComputedStyle(brand);
   logo.style.fontFamily = brandStyle.fontFamily;
   logo.style.fontWeight = brandStyle.fontWeight;
@@ -695,13 +696,18 @@ function finishOpeningScreen(screen) {
   const to = brand.getBoundingClientRect();
   const x = to.left + to.width / 2 - from.left - from.width / 2;
   const y = to.top + to.height / 2 - from.top - from.height / 2;
+  logo.style.left = `${x}px`;
   const scale = parseFloat(brandStyle.fontSize) / parseFloat(getComputedStyle(logo).fontSize);
-  const timing = { duration: 720, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'forwards' };
+  const timing = { duration: 1100, easing: 'ease-in-out', fill: 'forwards' };
   brand.classList.add('opening-brand');
-  screen.animate({ backgroundColor: ['#15392d', 'transparent'] }, timing);
+  screen.querySelector('.opening-backdrop').animate([
+    { opacity: 1 },
+    { opacity: 1, offset: 0.15 },
+    { opacity: 0 },
+  ], timing);
   const transition = logo.animate([
-    { transform: 'none', color: '#f6fbf7' },
-    { transform: `translate(${x}px, ${y}px) scale(${scale})`, color: brandStyle.color },
+    { transform: 'none', color: '#f6fbf7', opacity: logoOpacity },
+    { transform: `translateY(${y}px) scale(${scale})`, color: brandStyle.color, opacity: 1 },
   ], timing);
   const finish = () => {
     screen.remove();

@@ -4,11 +4,17 @@
   z-index: 20;
   display: grid;
   place-items: center;
-  background: #15392d;
   color: #f6fbf7;
 }
 
+.opening-backdrop {
+  position: absolute;
+  inset: 0;
+  background: #15392d;
+}
+
 .opening-screen > span {
+  position: relative;
   font-size: 3.5rem;
   font-weight: 700;
   line-height: 1;
@@ -968,6 +974,11 @@ body:has(dialog:modal) :is(.workspace, .tile-scroll, .charge-list-scroll, .card-
 }
 
 @media (max-width: 759px) {
+  .opening-screen > span {
+    position: relative;
+    top: -8dvh;
+  }
+
   /* Reserve the space occupied by the header after it leaves the page flow. */
   .app-shell::before {
     content: "";

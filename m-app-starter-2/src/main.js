@@ -509,8 +509,8 @@ function cardMarkup() {
       <h3 id="entry-delete-title">Remove this entry?</h3>
       <p id="entry-delete-details" class="charge-vendor-name"></p>
       <div class="charge-delete-actions">
-        <button type="button" data-action="close-charge-dialog" autofocus>No</button>
-        <button type="button" class="charge-swipe-delete" data-action="delete-confirmed-row">Yes, remove</button>
+        <button type="button" data-action="close-charge-dialog" autofocus>Cancel</button>
+        <button type="button" data-action="delete-confirmed-row">Remove</button>
       </div>
     </dialog>
     <datalist id="card-vendor-history">${knownVendors.map(name => `<option value="${esc(name)}"></option>`).join('')}</datalist>
@@ -629,6 +629,23 @@ function billsMarkup() {
     </dialog>`}
   </section>`;
 }
+function chargeScrollPosition(list) {
+  const bounds = list.getBoundingClientRect();
+  const headerHeight = list.querySelector('thead')?.offsetHeight ?? 0;
+  const row = Array.from(list.querySelectorAll('[data-charge-id]')).find(row => {
+    const rect = row.getBoundingClientRect();
+    return rect.bottom > bounds.top + headerHeight && rect.top < bounds.bottom;
+  });
+  return { top: list.scrollTop, id: row?.dataset.chargeId, offset: row ? row.getBoundingClientRect().top - bounds.top : 0 };
+}
+
+function restoreChargeScroll(list, position) {
+  const row = position.id && list.querySelector(`[data-charge-id="${CSS.escape(position.id)}"]`);
+  list.scrollTop = row
+    ? list.scrollTop + row.getBoundingClientRect().top - list.getBoundingClientRect().top - position.offset
+    : position.top;
+}
+
 function render() {
   headerSizeObserver.disconnect();
   scheduleVisibilityObserver?.disconnect();
@@ -638,6 +655,11 @@ function render() {
   const enteringSchedule = !root.querySelector('.schedule-panel');
   const tileScroll = root.querySelector('.workspace')?.scrollLeft ?? 0;
   const tileScrollTops = Array.from(root.querySelectorAll(tileScrollSelector), list => list.scrollTop);
+  const chargePositions = new Map();
+  for (const form of root.querySelectorAll('.charge-list[data-charge-scope]')) {
+    const list = form.querySelector('.charge-list-scroll');
+    if (list?.clientHeight) chargePositions.set(form.dataset.chargeScope, chargeScrollPosition(list));
+  }
   root.innerHTML = `<div class="app-shell"><header><div class="topline">${accountMarkup()}</div>${monthNavigationMarkup(selectedMonth, busy || dirty)}<div class="save-line" role="status">${busy ? 'Saving…' : dirty ? 'Changes need to be saved' : supabase ? 'Saved to your account' : 'Saved on this device'}${notice ? ` · ${esc(notice)}` : ''}</div></header>${error ? `<div class="error-banner" role="alert"><p>${esc(error)}</p><div>${dirty ? '<button data-action="retry">Retry save</button>' : ''}<button data-action="reload">Reload saved version</button></div></div>` : ''}<main class="workspace">${scheduleMarkup()}<div class="ledgers">${cardMarkup()}${billsMarkup()}</div></main></div>`;
   const header = root.querySelector('.app-shell > header');
   root.style.setProperty('--budget-header-height', header.offsetHeight + 'px');
@@ -660,7 +682,11 @@ function render() {
     scheduleVisible = visible;
   }, { root: workspace, threshold: [0, 0.6] });
   scheduleVisibilityObserver.observe(schedulePanel);
-  scrollToLatestCharges();
+  for (const form of root.querySelectorAll('.charge-list[data-charge-scope]')) {
+    const list = form.querySelector('.charge-list-scroll');
+    const position = chargePositions.get(form.dataset.chargeScope);
+    if (list && position) restoreChargeScroll(list, position);
+  }
 }
 function scrollToLatestCharges() {
   for (const list of root.querySelectorAll('.card-tab-panel:not([hidden]) .charge-list-scroll')) {
@@ -1286,11 +1312,12 @@ root.addEventListener('click', async event => {
   if (action === 'select-card') return selectCard(button.dataset.card);
   if (action === 'edit-bills' || action === 'edit-charges' || action === 'edit-schedule') {
     const form = button.form;
-    form.classList.add('is-editing');
     const chargeList = form.querySelector('.charge-list-scroll');
+    const position = chargeList && chargeScrollPosition(chargeList);
+    form.classList.add('is-editing');
     if (chargeList) {
       chargeList.focus({ preventScroll: true });
-      chargeList.scrollTop = 0;
+      restoreChargeScroll(chargeList, position);
     } else {
       form.tabIndex = -1;
       form.focus({ preventScroll: true });
@@ -1314,10 +1341,13 @@ root.addEventListener('click', async event => {
   }
   if (action === 'cancel-charge-edits') {
     const form = button.form;
+    const list = form.querySelector('.charge-list-scroll');
+    const position = chargeScrollPosition(list);
     form.reset();
     form.querySelector('.schedule-editor-error').textContent = '';
     form.classList.remove('is-editing');
-    form.querySelector('[data-action="edit-charges"]').focus();
+    form.querySelector('[data-action="edit-charges"]').focus({ preventScroll: true });
+    restoreChargeScroll(list, position);
     return;
   }
   if (action === 'toggle-savings-removal') {

@@ -463,9 +463,15 @@ body:has(dialog:modal) :is(.workspace, .tile-scroll, .charge-list-scroll, .card-
   text-transform: uppercase;
 }
 
-dialog button:is([data-action="close-charge-dialog"], [data-action="close-item-dialog"]) {
-  border-color: transparent;
+.schedule-item-heading > button:is([data-action="close-charge-dialog"], [data-action="close-item-dialog"]) {
+  border: 0;
   background: transparent;
+  box-shadow: none;
+  outline: none;
+}
+
+.schedule-item-heading > button:is([data-action="close-charge-dialog"], [data-action="close-item-dialog"]):focus-visible {
+  text-decoration: underline;
 }
 
 .card-month-activity .card-month-activity-cycle {
@@ -500,10 +506,32 @@ dialog button:is([data-action="close-charge-dialog"], [data-action="close-item-d
   overflow-wrap: anywhere;
 }
 
+#entry-delete-dialog {
+  width: min(21rem, calc(100% - 2rem));
+  padding: 1.25rem;
+}
+
+#entry-delete-details {
+  margin: 0 0 0.875rem;
+  color: var(--muted, #506158);
+}
+
 .charge-delete-actions {
-  display: flex;
-  justify-content: flex-end;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.5rem;
+}
+
+.charge-delete-actions > button {
+  min-width: 0;
+  min-height: 2.75rem;
+  padding: 0.375rem;
+}
+
+.charge-delete-actions > [data-action="delete-confirmed-row"] {
+  border-color: #a52830;
+  background: #a52830;
+  color: #fff;
 }
 
 .charge-dialog.charge-entry-dialog {
@@ -1481,5 +1509,23 @@ display: none;
     max-height: calc(var(--charge-header-height) + 6 * var(--charge-row-height) + 1px);
     min-height: 0;
     overscroll-behavior-y: contain;
+  }
+
+  .workspace .card-panel:has(.charge-list.is-editing) {
+    overflow-y: auto;
+  }
+
+  .card-tab-panel:has(> .charge-list.is-editing),
+  .charge-list.is-editing,
+  .charge-list.is-editing > .charge-list-scroll {
+    flex-shrink: 0;
+  }
+
+  .charge-list.is-editing .charge-list-edit :is(input, select) {
+    font-size: max(16px, 1rem);
+  }
+
+  .charge-list.is-editing > .charge-list-scroll {
+    scroll-padding-block-start: var(--charge-header-height);
   }
 }

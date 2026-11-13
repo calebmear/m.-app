@@ -97,8 +97,8 @@ export function emptyPreferences() {
     schemaVersion: 1,
     paycheckCadence: 'biweekly',
     paychecks: [
-      { name: 'C pay', amountCents: 220000 },
-      { name: 'A pay', amountCents: 185000 },
+      { name: 'Caleb Pay', amountCents: 220000 },
+      { name: 'Aut Pay', amountCents: 185000 },
     ],
     bills: [],
   };
@@ -109,7 +109,10 @@ export function hasLegacyPaycheckDefaults(paychecks) {
     pay.amountCents === 0 && !pay.received && !pay.endOfMonth
   );
 }
-export function createMonth(month, preferences = emptyPreferences()) {
+export function paycheckName(name) {
+  return name.replace(/^C(?=\s)/i, 'Caleb').replace(/^A(?=\s)/, 'Aut').replace(/^(Caleb|Aut) pay$/i, '$1 Pay');
+}
+export function createMonth(month, preferences = emptyPreferences(), previousMonth = null) {
   const last = daysInMonth(month);
   let paychecks = preferences.paychecks;
   const hasLegacyDefaults = hasLegacyPaycheckDefaults(paychecks);
@@ -125,13 +128,51 @@ export function createMonth(month, preferences = emptyPreferences()) {
   }
   return {
     schemaVersion: 1, month, openingCents: 0, closed: false,
-    paychecks: paychecks.map(p => ({ id: id(), name: p.name, day: p.endOfMonth ? last : Math.min(p.day, last), amountCents: p.amountCents, received: false })),
-    bills: preferences.bills.map(b => ({ id: id(), name: b.name, day: b.endOfMonth ? last : Math.min(b.day, last), amountCents: b.amountCents, paid: false, endOfMonth: Boolean(b.endOfMonth) })),
+    paychecks: paychecks.map(p => ({ id: id(), name: paycheckName(p.name), day: p.endOfMonth ? last : Math.min(p.day, last), amountCents: p.amountCents, received: false })),
+    bills: (previousMonth?.bills ?? preferences.bills).map(b => ({ id: id(), name: b.name, day: b.endOfMonth ? last : Math.min(b.day, last), amountCents: b.amountCents, paid: false, endOfMonth: Boolean(b.endOfMonth) })),
     charges: [], statement: { amountCents: 0, paymentDay: Math.min(19, last), dueDay: Math.min(20, last), paid: false }
   };
 }
 export function preferencesFromMonth(document) {
   return { schemaVersion: 1, paychecks: document.paychecks.map(({ name, day, amountCents }) => ({ name, day, amountCents })), bills: document.bills.map(({ name, day, amountCents, endOfMonth }) => ({ name, day, amountCents, endOfMonth })) };
+}
+export const SAVINGS_ACCOUNT_LABELS = {
+  'A Apple': 'Aut - Apple',
+  'A BOA': 'Aut - BOA',
+  'C BOA': 'Caleb - BOA',
+};
+export const SAVINGS_ACCOUNTS = Object.keys(SAVINGS_ACCOUNT_LABELS);
+export const DEFAULT_SAVINGS_ACCOUNT = 'C BOA';
+export function qpiSavingsDeposits(month, now = new Date()) {
+  const [year, number] = month.split('-').map(Number);
+  const firstFriday = 1 + (5 - new Date(Date.UTC(year, number - 1, 1)).getUTCDay() + 7) % 7;
+  const today = new Intl.DateTimeFormat('en-US', {
+    year: 'numeric', month: '2-digit', day: '2-digit', timeZone: 'America/New_York',
+  }).formatToParts(now);
+  const todayKey = ['year', 'month', 'day'].map(type => today.find(part => part.type === type).value).join('-');
+  const deposits = [];
+  const last = daysInMonth(month);
+  for (let day = firstFriday; day <= last; day += 7) {
+    deposits.push({
+      day, account: 'A Apple', name: 'QPI Pay', amountCents: -9975,
+      pending: `${month}-${String(day).padStart(2, '0')}` > todayKey,
+    });
+  }
+  return deposits;
+}
+export function savingsOpeningOverride(document, account) {
+  return document?.savingsOpeningByAccount?.[account] ??
+    (account === DEFAULT_SAVINGS_ACCOUNT ? document?.savingsOpeningCents : undefined);
+}
+export function savingsTotals(document, account, inheritedOpeningCents = 0, now = new Date()) {
+  const openingCents = savingsOpeningOverride(document, account) ?? inheritedOpeningCents;
+  // Schedule transfers are signed from checking's perspective.
+  const activityCents = (document.savingsTransfers ?? [])
+    .filter(entry => (entry.account ?? DEFAULT_SAVINGS_ACCOUNT) === account)
+    .reduce((sum, entry) => sum - entry.amountCents, 0);
+  const qpiCents = account === 'A Apple' ? qpiSavingsDeposits(document.month, now)
+    .reduce((sum, entry) => entry.pending ? sum : sum - entry.amountCents, 0) : 0;
+  return { openingCents, endingCents: openingCents + activityCents + qpiCents };
 }
 export function sortedCharges(charges) {
   return charges.slice().sort((a, b) => {
@@ -159,7 +200,7 @@ export function eventsForMonth(document) {
   const events = [
     ...document.paychecks.map(p => ({ day: p.day, amountCents: p.amountCents, kind: 'pay', priority: 0 })),
     ...Object.entries(document.etsyDeposits ?? {}).map(([day, amountCents]) => ({ day: Number(day), amountCents, kind: 'etsy', priority: 0 })),
-    ...(document.savingsTransfers ?? []).map(({ day, amountCents }) => ({
+    ...(document.savingsTransfers ?? []).filter(entry => !entry.savingsOnly).map(({ day, amountCents }) => ({
       day, amountCents, kind: 'savings', priority: amountCents > 0 ? 0 : 1,
     })),
     ...(document.checkingItems ?? []).map(({ day, amountCents }) => ({
@@ -222,8 +263,8 @@ export function compactSchedule(document) {
     ...etsyDepositDays(document).map(day => ({
       day, label: 'Etsy deposit', amountCents: document.etsyDeposits?.[day] ?? 0, kind: 'etsy',
     })),
-    ...(document.savingsTransfers ?? []).map(({ day, amountCents }) => ({
-      day, label: amountCents < 0 ? 'Transfer to savings' : 'Withdrawal from savings', amountCents, kind: 'savings',
+    ...(document.savingsTransfers ?? []).filter(entry => !entry.savingsOnly).map(({ day, amountCents, account = DEFAULT_SAVINGS_ACCOUNT }) => ({
+      day, label: amountCents < 0 ? 'Transfer to savings' : 'Withdrawal from savings', amountCents, account, kind: 'savings',
     })),
   ].sort((a, b) => a.day - b.day);
   const lastCardDueDay = Math.max(...cardPayments.map(card => card.dueDay));
@@ -250,8 +291,8 @@ export function compactSchedule(document) {
   }
 
   function addTransfersAndDeposits(start, end) {
-    for (const { day, label, amountCents, kind } of transfersAndDeposits) {
-      if (day >= start && day <= end) add(day, label, amountCents, kind);
+    for (const { day, label, amountCents, kind, account } of transfersAndDeposits) {
+      if (day >= start && day <= end) add(day, label, amountCents, kind, account ? { account } : undefined);
     }
   }
 
@@ -265,7 +306,7 @@ export function compactSchedule(document) {
     addTransfersAndDeposits(start, day);
     addExpenses(start, day);
     for (const pay of document.paychecks.filter(pay => pay.day === day)) {
-      add(day, pay.name, pay.amountCents, 'pay', { pay });
+      add(day, paycheckName(pay.name), pay.amountCents, 'pay', { pay });
     }
     // Use the balance after the card payment when payday is one day before it.
     if (day !== lastCardDueDay - 1) checkpoint(day);
@@ -283,6 +324,14 @@ export function validateDocument(document) {
   if (document?.schemaVersion !== 1 || !validMonth(document.month)) throw new Error('This budget uses an unsupported format.');
   const safeCents = cents => Number.isSafeInteger(cents);
   if (!safeCents(document.openingCents)) throw new Error('Invalid beginning balance.');
+  if (document.savingsOpeningCents !== undefined && !safeCents(document.savingsOpeningCents)) throw new Error('Invalid savings opening balance.');
+  if (document.savingsOpeningByAccount !== undefined) {
+    const openings = document.savingsOpeningByAccount;
+    if (!openings || typeof openings !== 'object' || Array.isArray(openings) ||
+        Object.entries(openings).some(([account, cents]) => !SAVINGS_ACCOUNTS.includes(account) || !safeCents(cents))) {
+      throw new Error('Invalid savings opening balance.');
+    }
+  }
   if (document.etsyDeposits !== undefined) {
     if (!document.etsyDeposits || typeof document.etsyDeposits !== 'object' || Array.isArray(document.etsyDeposits)) throw new Error('Invalid Etsy deposits.');
     for (const [day, cents] of Object.entries(document.etsyDeposits)) {
@@ -300,6 +349,9 @@ export function validateDocument(document) {
       if (key === 'savingsTransfers') {
         validateDay(row.day, document.month);
         if (!row.amountCents) throw new Error('Enter a nonzero savings transfer.');
+        if (row.name !== undefined && typeof row.name !== 'string') throw new Error('Invalid savings description.');
+        if (row.account !== undefined && !SAVINGS_ACCOUNTS.includes(row.account)) throw new Error('Choose a savings account.');
+        if (row.savingsOnly !== undefined && typeof row.savingsOnly !== 'boolean') throw new Error('Invalid savings activity.');
       }
       else if (key === 'checkingItems') {
         validateDay(row.day, document.month);

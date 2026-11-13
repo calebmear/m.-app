@@ -1,6 +1,6 @@
 import './styles.css';
 import './schedule.css';
-import { eventsForMonth } from './budget.js';
+import { eventsForMonth, nextMonth, paycheckName, qpiSavingsDeposits, savingsTotals, savingsOpeningOverride, SAVINGS_ACCOUNTS, SAVINGS_ACCOUNT_LABELS, DEFAULT_SAVINGS_ACCOUNT } from './budget.js';
 import { CATEGORIES, CC_CATEGORY_CODES, CARDS, cardStatementCycle, cardStatementPayments, copy, id, money, currentMonth, validMonth, daysInMonth, monthLabel, shortMonth, toCents, parsePostedDate, displayDate, validateDay, emptyPreferences, createMonth, hasLegacyPaycheckDefaults, sortedCharges, totals, compactSchedule, etsyDepositDays } from './budget.js';
 import { createLocalRepository, createCloudRepository } from './repository.js';
 import { supabase } from './supabase.js';
@@ -64,6 +64,12 @@ let knownVendors = [];
 let budget = null, revision = 0, preferences = emptyPreferences();
 let repository = null, activeUser = null, busy = false, dirty = false, error = '', notice = '', loading = true, loadToken = 0;
 let hasOpenedBudget = false;
+let inheritedSavingsOpenings = {};
+const expandedSavingsAccounts = new Set();
+function savingsAccountOptions(selected = '') {
+  return `<option value="" disabled ${selected ? '' : 'selected'}>Choose account</option>${SAVINGS_ACCOUNTS.map(account =>
+    `<option value="${account}" ${account === selected ? 'selected' : ''}>${SAVINGS_ACCOUNT_LABELS[account]}</option>`).join('')}`;
+}
 const disabled = () => busy || budget?.closed ? 'disabled' : '';
 const negative = value => value < 0 ? 'negative' : '';
 const amount = value => (value / 100).toFixed(2);
@@ -147,9 +153,11 @@ function scheduleItemDialogMarkup(lastDay) {
       ${actions('Add income')}
     </form>
     <form id="add-savings" class="inline-form schedule-item-form" data-schedule-item-view="savings" hidden>
+      <label>Account<select name="account" required>${savingsAccountOptions()}</select></label>
       <label>Date<input name="date" type="date" ${dateLimits} required></label>
       <label>Amount ($)<input name="amount" placeholder="+100 or -100" aria-describedby="savings-amount-hint" required></label>
       <p class="hint savings-amount-hint" id="savings-amount-hint">+ from savings · − to savings</p>
+      <label>Note<input name="name" placeholder="Optional"></label>
       ${actions('Add savings')}
     </form>
   </dialog>`;
@@ -175,12 +183,12 @@ function scheduleMarkup() {
   const rowGroups = [];
   const billDialogs = [];
   let firstBillDay = 1;
-  const hasBothPayTypes = ['C pay', 'A pay'].every(name => budget.paychecks.some(pay => pay.name === name));
+  const hasBothPayTypes = ['Caleb Pay', 'Aut Pay'].every(name => budget.paychecks.some(pay => paycheckName(pay.name) === name));
   schedule.forEach((row, index) => {
     let label = row.label;
     if (row.kind === 'opening') label = 'BOA (x Mort/Fees)';
     if (row.kind === 'balance' && /^Checking balance$/i.test(label)) label = 'BOA Balance';
-    if (row.kind === 'savings') label = 'Savings';
+    if (row.kind === 'savings') label = `Savings · ${SAVINGS_ACCOUNT_LABELS[row.account]}`;
     label = label.replace(/(^|[\s(/·-])(\p{L})/gu, (_, prefix, letter) => prefix + letter.toUpperCase());
     const fullLabel = row.kind === 'opening' ? 'BOA after mortgage/fees' : label;
     const balanceClass = row.kind === 'opening' || row.kind === 'balance' ? 'schedule-balance' : '';
@@ -195,7 +203,7 @@ function scheduleMarkup() {
     if (row.kind === 'etsy') amountName = 'etsy-' + row.day;
     if (row.kind === 'pay') {
       const paycheckIndex = budget.paychecks.indexOf(row.pay);
-      const name = esc(row.pay.name);
+      const name = esc(paycheckName(row.pay.name));
       amountName = 'amount-' + paycheckIndex;
       date = `<span class="schedule-view-value">${date}</span>
         <span class="schedule-edit-controls schedule-date-input">${monthNumber}/<input name="day-${paycheckIndex}" aria-label="${name} day of month" type="number" min="1" max="${lastDay}" value="${row.day}" required></span>`;
@@ -290,6 +298,7 @@ function scheduleMarkup() {
   }).join('');
   const lastDate = `${selectedMonth}-${lastDay}`;
   const savingsEditors = (budget.savingsTransfers ?? []).map((transfer, index) => {
+    if (transfer.savingsOnly) return '';
     const date = `${selectedMonth}-${String(transfer.day).padStart(2, '0')}`;
     return `<div class="schedule-savings-transfer" data-savings-editor>
       <div class="schedule-savings-heading">
@@ -298,8 +307,10 @@ function scheduleMarkup() {
         <input type="checkbox" name="remove-savings-${index}" hidden>
       </div>
       <fieldset class="schedule-savings-fields" aria-label="Savings details">
+        <label>Account<select name="savings-account-${index}" required>${savingsAccountOptions(transfer.account ?? DEFAULT_SAVINGS_ACCOUNT)}</select></label>
         <label>Date<input name="savings-date-${index}" type="date" min="${selectedMonth}-01" max="${lastDate}" value="${date}" required></label>
         <label>Amount ($)<input name="savings-amount-${index}" value="${transfer.amountCents > 0 ? '+' : ''}${amount(transfer.amountCents)}" aria-describedby="edit-savings-amount-hint" required></label>
+        <label>Note<input name="savings-note-${index}" value="${esc(transfer.name)}" placeholder="Optional"></label>
       </fieldset>
     </div>`;
   }).join('');
@@ -642,7 +653,9 @@ function billsMarkup() {
         ${canEdit ? panelEditButton('edit-bills', 'Edit checking bills', 'bill-edit-button') : ''}
       </div>
       <div class="tile-scroll" role="region" aria-label="Checking entries" tabindex="0">
-      ${rows ? `<ul class="bill-list">${rows}</ul>` : '<p class="hint">No bills for this month.</p>'}
+      ${rows ? `<ul class="bill-list">${rows}</ul>` : `<p class="hint">No bills for this month.</p>
+        ${budget.closed ? '' : `<button type="button" data-action="copy-previous-bills" ${disabled()}>Copy previous month’s bills</button>
+        <p class="hint" data-bill-copy-status role="status"></p>`}`}
       ${checkingRows ? `<section class="checking-items" aria-label="Misc checking">
         <h3>MISC</h3>
         <ul class="bill-list">${checkingRows}</ul>
@@ -750,7 +763,7 @@ function render() {
   if (supabase && !activeUser) return renderAuth();
   if (!budget) {
     if (loading && !hasOpenedBudget) showOpeningScreen();
-    else if (loading) root.innerHTML = '<main class="auth" role="status" aria-label="Loading budget"><div class="wordmark" aria-hidden="true">m.</div></main>';
+    else if (loading) root.innerHTML = '<main role="status" aria-label="Loading budget"></main>';
     else root.innerHTML = `<main class="auth"><div class="wordmark">m.</div><p>${esc(error || 'Could not open your budget.')}</p><button data-action="reload">Try again</button></main>`;
     return;
   }
@@ -765,7 +778,7 @@ function render() {
     const list = form.querySelector('.charge-list-scroll');
     if (list?.clientHeight) chargePositions.set(form.dataset.chargeScope, chargeScrollPosition(list));
   }
-  root.innerHTML = `<div class="app-shell"><header><div class="topline">${accountMarkup()}</div>${monthNavigationMarkup(selectedMonth, busy || dirty)}<div class="save-line" role="status">${busy ? 'Saving…' : dirty ? 'Changes need to be saved' : supabase ? 'Saved to your account' : 'Saved on this device'}${notice ? ` · ${esc(notice)}` : ''}</div></header>${error ? `<div class="error-banner" role="alert"><p>${esc(error)}</p><div>${dirty ? '<button data-action="retry">Retry save</button>' : ''}<button data-action="reload">Reload saved version</button></div></div>` : ''}<main class="workspace">${scheduleMarkup()}<div class="ledgers">${cardMarkup()}${billsMarkup()}</div></main></div>`;
+  root.innerHTML = `<div class="app-shell"><header><div class="topline">${accountMarkup()}</div>${monthNavigationMarkup(selectedMonth, busy || dirty)}<div class="save-line" role="status">${busy ? 'Saving…' : dirty ? 'Changes need to be saved' : supabase ? 'Saved to your account' : 'Saved on this device'}${notice ? ` · ${esc(notice)}` : ''}</div></header>${error ? `<div class="error-banner" role="alert"><p>${esc(error)}</p><div>${dirty ? '<button data-action="retry">Retry save</button>' : ''}<button data-action="reload">Reload saved version</button></div></div>` : ''}<main class="workspace">${scheduleMarkup()}<div class="ledgers">${cardMarkup()}${billsMarkup()}${savingsMarkup()}</div></main></div>`;
   const header = root.querySelector('.app-shell > header');
   root.style.setProperty('--budget-header-height', header.offsetHeight + 'px');
   headerSizeObserver.observe(header);
@@ -794,6 +807,80 @@ function render() {
   }
   finishOpeningScreen(openingScreen);
 }
+function savingsMarkup() {
+  const now = new Date();
+  const entries = [...(budget.savingsTransfers ?? []), ...qpiSavingsDeposits(budget.month, now)].reverse().sort((a, b) => b.day - a.day);
+  const signedMoney = cents => (cents < 0 ? '−' : cents > 0 ? '+' : '') + money(Math.abs(cents));
+  const activityClass = cents => cents < 0 ? 'savings-out' : cents > 0 ? 'savings-in' : '';
+  const accountBalances = SAVINGS_ACCOUNTS.map(account => ({
+    account, ...savingsTotals(budget, account, inheritedSavingsOpenings[account], now),
+  }));
+  const total = accountBalances.reduce((sum, balance) => sum + balance.endingCents, 0);
+  const accountRow = ({ account, openingCents, endingCents }) => {
+    const activity = endingCents - openingCents;
+    const accountEntries = entries.filter(entry => (entry.account ?? DEFAULT_SAVINGS_ACCOUNT) === account);
+    const expanded = expandedSavingsAccounts.has(account);
+    const detailsId = 'savings-details-' + SAVINGS_ACCOUNTS.indexOf(account);
+    const label = SAVINGS_ACCOUNT_LABELS[account];
+    const owner = label.split(' - ')[0];
+    const accountHeading = accountEntries.length ? `<button type="button" class="savings-value-button savings-toggle"
+      data-action="toggle-savings-account" data-account="${account}" aria-expanded="${expanded}" aria-controls="${detailsId}">
+      ${owner}<span class="schedule-section-chevron" aria-hidden="true"></span></button>` : owner;
+    return `<tr class="savings-summary"><th scope="row">${accountHeading}</th><td>${money(openingCents)}</td>
+      <td class="${activityClass(activity)}">${signedMoney(activity)}</td><td>${money(endingCents)}</td></tr>
+      ${accountEntries.length ? `<tr id="${detailsId}" class="savings-details" ${expanded ? '' : 'hidden'}><td colspan="4">
+        <ul class="savings-list">${accountEntries.map(entry => {
+          const cents = -entry.amountCents;
+          const content = `<time datetime="${selectedMonth}-${String(entry.day).padStart(2, '0')}">${Number(selectedMonth.slice(5))}/${entry.day}</time>
+            <strong class="${entry.pending ? 'savings-pending' : activityClass(cents)}">${signedMoney(cents)}</strong>
+            <small class="savings-note">${esc(entry.name)}${entry.pending ? ' · Pending' : ''}</small>`;
+          return `<li>${entry.savingsOnly && !budget.closed
+            ? `<button type="button" class="savings-row savings-entry-edit" data-action="add-savings-entry" data-entry-id="${esc(entry.id)}" aria-haspopup="dialog" ${disabled()}>${content}</button>`
+            : `<div class="savings-row">${content}</div>`}</li>`;
+        }).join('')}</ul></td></tr>` : ''}`;
+  };
+  const balances = ['Apple', 'BOA'].map(bank => {
+    const accounts = accountBalances.filter(({ account }) => account.endsWith(' ' + bank));
+    const net = accounts.reduce((sum, account) => sum + account.endingCents, 0);
+    return `<tbody><tr class="savings-bank"><th scope="rowgroup" colspan="3">${bank}</th>
+      <td>${money(net)}</td></tr>${accounts.map(accountRow).join('')}</tbody>`;
+  }).join('');
+  return `<section class="panel savings-panel">
+    <div class="panel-heading"><h2>Savings</h2>
+      ${budget.closed ? '' : panelEditButton('edit-savings-opening', 'Edit opening balances', 'savings-edit-button')}
+    </div>
+    <div class="savings-grand-total"><span>Total Savings</span><strong>${money(total)}</strong></div>
+    <div class="tile-scroll" role="region" aria-label="Savings balances and activity" tabindex="0">
+    <table class="schedule schedule-ledger savings-balances" aria-label="Savings balances">
+      <thead><tr><th scope="col">Account</th><th scope="col">Opening</th><th scope="col">Activity</th><th scope="col">Net Balance</th></tr></thead>
+      ${balances}
+    </table>
+    </div>
+    ${budget.closed ? '' : `<button type="button" class="primary savings-add" data-action="add-savings-entry" aria-haspopup="dialog" ${disabled()}>+ Add activity</button>
+    <dialog id="savings-dialog" class="schedule-item-dialog" aria-labelledby="savings-dialog-title">
+      <div class="schedule-item-heading charge-entry-heading">
+        <h3 id="savings-dialog-title" tabindex="-1" autofocus>Savings</h3>
+        <button type="button" data-action="close-item-dialog" aria-label="Close savings editor">×</button>
+      </div>
+      <form id="edit-savings-opening" class="card-payment-form" hidden>
+        ${accountBalances.map(({ account, openingCents }) =>
+          `<label>${SAVINGS_ACCOUNT_LABELS[account]} ($)<input name="${account}" value="${amount(openingCents)}" inputmode="text" required></label>`
+        ).join('')}
+        <div role="alert" class="schedule-editor-error"></div>
+        <button type="submit" class="primary">Save balances</button>
+      </form>
+      <form id="add-savings-entry" class="card-payment-form" hidden>
+        <label>Account<select name="account" required>${savingsAccountOptions()}</select></label>
+        <label>Note<input name="name" placeholder="Optional"></label>
+        <label>Date<input name="date" type="date" min="${selectedMonth}-01" max="${selectedMonth}-${daysInMonth(selectedMonth)}" required></label>
+        <label>Direction<select name="direction"><option value="in">Money in</option><option value="out">Money out</option></select></label>
+        <label>Amount ($)<input name="amount" inputmode="decimal" required></label>
+        <div role="alert" class="schedule-editor-error"></div>
+        <button type="submit" class="primary">Save activity</button>
+      </form>
+    </dialog>`}
+  </section>`;
+}
 function scrollToLatestCharges() {
   for (const list of root.querySelectorAll('.card-tab-panel:not([hidden]) .charge-list-scroll')) {
     list.scrollTop = 0;
@@ -801,12 +888,42 @@ function scrollToLatestCharges() {
 }
 async function loadMonth() {
   const token = ++loadToken;
+  const month = selectedMonth;
+  const monthRepository = repository;
   activeCard = cardTabs[0].id;
   loading = true; error = ''; budget = null; dirty = false; render();
   try {
-    const record = await repository.loadMonth(selectedMonth);
+    const record = await monthRepository.loadMonth(month);
     if (token !== loadToken) return;
-    budget = record ? copy(record.document) : createMonth(selectedMonth, preferences);
+    const savedMonth = record?.document;
+    const needsBillCarryover = savedMonth && !savedMonth.closed && !savedMonth.bills.length && !savedMonth.billsInitialized;
+    const unresolvedAccounts = new Set(SAVINGS_ACCOUNTS.filter(account => savingsOpeningOverride(savedMonth, account) === undefined));
+    const previous = !savedMonth || needsBillCarryover || unresolvedAccounts.size ? await monthRepository.loadPreviousMonth(month) : null;
+    const historicalSavings = {};
+    const now = new Date();
+    let followingMonth = month;
+    let earlier = previous?.document;
+    while (earlier && unresolvedAccounts.size && token === loadToken) {
+      if (unresolvedAccounts.has('A Apple')) {
+        for (let gap = nextMonth(earlier.month); gap < followingMonth; gap = nextMonth(gap)) {
+          historicalSavings['A Apple'] = (historicalSavings['A Apple'] ?? 0) + savingsTotals({ month: gap }, 'A Apple', 0, now).endingCents;
+        }
+      }
+      for (const account of unresolvedAccounts) {
+        historicalSavings[account] = savingsTotals(earlier, account, 0, now).endingCents + (historicalSavings[account] ?? 0);
+        if (savingsOpeningOverride(earlier, account) !== undefined) unresolvedAccounts.delete(account);
+      }
+      if (!unresolvedAccounts.size) break;
+      followingMonth = earlier.month;
+      earlier = (await monthRepository.loadPreviousMonth(earlier.month))?.document;
+    }
+    if (token !== loadToken) return;
+    inheritedSavingsOpenings = historicalSavings;
+    budget = savedMonth ? copy(savedMonth) : createMonth(month, preferences, previous?.document);
+    if (needsBillCarryover && previous?.document.bills.length) {
+      budget.bills = createMonth(month, preferences, previous.document).bills;
+    }
+    if (!budget.closed) budget.billsInitialized = true;
     rememberVendors(budget.charges);
     if (record && !budget.closed && hasLegacyPaycheckDefaults(budget.paychecks)) {
       budget.paychecks = createMonth(selectedMonth).paychecks;
@@ -1094,6 +1211,36 @@ root.addEventListener('submit', async event => {
     return;
   }
   if (busy || !budget || budget.closed) return;
+  if (form.id === 'edit-savings-opening' || form.id === 'add-savings-entry') {
+    const message = form.querySelector('.schedule-editor-error');
+    try {
+      if (form.id === 'edit-savings-opening') {
+        const changes = {};
+        for (const account of SAVINGS_ACCOUNTS) {
+          const cents = toCents(fields.get(account), true);
+          if (cents !== savingsTotals(budget, account, inheritedSavingsOpenings[account]).openingCents) changes[account] = cents;
+        }
+        if (Object.keys(changes).length) {
+          await commit(next => { Object.assign(next.savingsOpeningByAccount ??= {}, changes); });
+        } else {
+          form.closest('dialog').close();
+        }
+      } else {
+        const day = scheduleItemDay(fields.get('date'));
+        const cents = toCents(fields.get('amount'));
+        if (!cents) throw new Error('Enter a nonzero amount.');
+        const entryId = form.dataset.entryId;
+        const entry = { id: entryId ?? id(), day, account: fields.get('account'), name: fields.get('name').trim(), savingsOnly: true,
+          amountCents: fields.get('direction') === 'in' ? -cents : cents };
+        await commit(next => {
+          const entries = next.savingsTransfers ??= [];
+          if (entryId) Object.assign(rowById(entries, entryId), entry);
+          else entries.push(entry);
+        });
+      }
+    } catch (cause) { message.textContent = cause.message; }
+    return;
+  }
   if (form.dataset.cardPayment || form.id === 'edit-card-payment') {
     const message = form.querySelector('.schedule-editor-error');
     try {
@@ -1195,7 +1342,7 @@ root.addEventListener('submit', async event => {
       message.textContent = '';
       const day = scheduleItemDay(fields.get('date'));
       const amountCents = signedAmount(fields.get('amount'));
-      const transfer = { id: id(), day, amountCents };
+      const transfer = { id: id(), day, amountCents, account: fields.get('account'), name: fields.get('name').trim() };
       await commit(next => { (next.savingsTransfers ??= []).push(transfer); });
     } catch (cause) {
       message.textContent = cause.message;
@@ -1232,10 +1379,11 @@ root.addEventListener('submit', async event => {
         amountCents: toCents(fields.get('amount-' + index)),
       }));
       const savingsTransfers = (budget.savingsTransfers ?? []).flatMap((transfer, index) => {
+        if (transfer.savingsOnly) return [transfer];
         if (fields.has('remove-savings-' + index)) return [];
         const day = scheduleItemDay(fields.get('savings-date-' + index));
         const amountCents = signedAmount(fields.get('savings-amount-' + index));
-        return [{ ...transfer, day, amountCents }];
+        return [{ ...transfer, day, amountCents, account: fields.get('savings-account-' + index), name: fields.get('savings-note-' + index).trim() }];
       });
       await commit(next => {
         next.openingCents = openingCents;
@@ -1282,6 +1430,44 @@ root.addEventListener('click', async event => {
   if (!event.target.closest('.charge-swipe-delete, .charge-dialog:not(.card-month-activity), .checking-row-toggle')) revealRowDelete();
   const button = event.target.closest('[data-action]'); if (!button || button.disabled) return;
   const action = button.dataset.action;
+  if (action === 'toggle-savings-account') {
+    const account = button.dataset.account;
+    const expanded = !expandedSavingsAccounts.has(account);
+    if (expanded) expandedSavingsAccounts.add(account);
+    else expandedSavingsAccounts.delete(account);
+    button.setAttribute('aria-expanded', String(expanded));
+    document.getElementById(button.getAttribute('aria-controls')).hidden = !expanded;
+    return;
+  }
+  if (action === 'copy-previous-bills') {
+    if (busy || !budget || budget.closed || budget.bills.length) return;
+    const monthBudget = budget;
+    const status = button.parentElement.querySelector('[data-bill-copy-status]');
+    button.disabled = true;
+    status.textContent = 'Looking for saved bills…';
+    try {
+      const previous = await repository.loadPreviousMonth(monthBudget.month);
+      if (budget !== monthBudget || busy || !button.isConnected) return;
+      if (!previous) {
+        status.textContent = 'No earlier saved month was found for this account.';
+        return;
+      }
+      if (!previous.document.bills.length) {
+        status.textContent = `${monthLabel(previous.document.month)} is the latest saved month and has no bills to copy.`;
+        return;
+      }
+      const { bills } = createMonth(monthBudget.month, preferences, previous.document);
+      await commit(next => {
+        next.bills = bills;
+        next.billsInitialized = true;
+      });
+    } catch (cause) {
+      status.textContent = cause.message;
+    } finally {
+      button.disabled = false;
+    }
+    return;
+  }
   if (action === 'toggle-schedule-section') {
     const sectionId = button.getAttribute('aria-controls');
     const expanded = button.getAttribute('aria-expanded') !== 'true';
@@ -1296,6 +1482,33 @@ root.addEventListener('click', async event => {
   }
   if (action === 'open-card-payments') {
     document.getElementById(button.getAttribute('aria-controls')).showModal();
+    return;
+  }
+  if (action === 'edit-savings-opening' || action === 'add-savings-entry') {
+    if (busy || budget.closed) return;
+    const dialog = root.querySelector('#savings-dialog');
+    const form = document.getElementById(action);
+    for (const panel of dialog.querySelectorAll('form')) panel.hidden = panel !== form;
+    form.reset();
+    form.querySelector('.schedule-editor-error').textContent = '';
+    const title = dialog.querySelector('h3');
+    if (action === 'edit-savings-opening') {
+      title.textContent = 'Edit opening balances';
+    } else {
+      const entryId = button.dataset.entryId;
+      const entry = entryId ? rowById(budget.savingsTransfers, entryId) : null;
+      delete form.dataset.entryId;
+      title.textContent = entry ? 'Edit savings activity' : 'Add savings activity';
+      if (entry) {
+        form.dataset.entryId = entry.id;
+        form.elements.account.value = entry.account;
+        form.elements.name.value = entry.name;
+        form.elements.date.value = `${selectedMonth}-${String(entry.day).padStart(2, '0')}`;
+        form.elements.direction.value = entry.amountCents < 0 ? 'in' : 'out';
+        form.elements.amount.value = amount(Math.abs(entry.amountCents));
+      }
+    }
+    dialog.showModal();
     return;
   }
   if (action === 'edit-card-payment') {

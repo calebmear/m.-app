@@ -284,18 +284,18 @@
   display: none;
 }
 
-.panel:is(.card-panel, .bills-panel, .schedule-panel) {
+.panel:is(.card-panel, .bills-panel, .schedule-panel, .savings-panel) {
   position: relative;
 }
 
-:is(.card-panel, .bills-panel, .schedule-panel) .panel-heading {
+:is(.card-panel, .bills-panel, .schedule-panel, .savings-panel) .panel-heading {
   flex-direction: column;
   justify-content: center;
   gap: 0.5rem;
   text-align: center;
 }
 
-:is(.card-panel, .bills-panel, .schedule-panel) .panel-heading h2 {
+:is(.card-panel, .bills-panel, .schedule-panel, .savings-panel) .panel-heading h2 {
   padding-inline: 2rem;
   text-transform: uppercase;
 }
@@ -1614,7 +1614,7 @@ display: none;
   }
 
   .workspace > .schedule-panel,
-  .workspace > .ledgers > :is(.card-panel, .bills-panel) {
+  .workspace > .ledgers > :is(.card-panel, .bills-panel, .savings-panel) {
     box-sizing: border-box;
     border-radius: var(--tile-radius);
     flex: 0 0 100%;
@@ -1626,7 +1626,7 @@ display: none;
     scroll-snap-stop: always;
   }
 
-  .workspace :is(.schedule-panel, .bills-panel),
+  .workspace :is(.schedule-panel, .bills-panel, .savings-panel),
   .workspace :is(#edit-schedule, #edit-bills),
   .workspace .card-panel {
     display: flex;
@@ -1723,4 +1723,177 @@ display: none;
   .charge-list.is-editing > .charge-list-scroll {
     scroll-padding-block-start: var(--charge-header-height);
   }
+}
+
+.savings-panel > .panel-heading {
+  justify-content: center;
+}
+
+.savings-panel > :not(.tile-scroll) {
+  flex-shrink: 0;
+}
+
+.savings-balances {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 0.65rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.savings-balances tr > :is(th, td) {
+  padding: 0.45rem 0.3rem;
+}
+
+.savings-panel > .tile-scroll {
+  overflow-x: auto;
+}
+
+.savings-balances .savings-summary td {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.savings-balances .savings-summary {
+  height: 2.75rem;
+}
+
+.savings-balances .savings-summary td:last-child {
+  font-weight: 700;
+}
+
+.savings-balances tbody > .savings-summary:not(:has(~ .savings-summary)) > *,
+.savings-balances tbody > .savings-details:last-child > td {
+  border-bottom: 0;
+}
+
+.savings-grand-total {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.55rem 0.3rem;
+  margin-block-end: 0.4rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.savings-grand-total strong {
+  font-size: 1.15rem;
+}
+
+.savings-balances .savings-bank > * {
+  background: #edf4ec;
+  font-weight: 700;
+}
+
+.savings-balances tbody + tbody .savings-bank > * {
+  padding-block-start: 0.85rem;
+  border-bottom: 0;
+}
+
+.savings-bank td {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.savings-value-button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 0.3rem 0;
+}
+
+.savings-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  text-align: left;
+}
+
+.savings-toggle .schedule-section-chevron {
+  flex-shrink: 0;
+}
+
+.savings-toggle[aria-expanded="true"] .schedule-section-chevron {
+  transform: rotate(225deg);
+}
+
+.savings-in {
+  color: #17633c;
+}
+
+.savings-out {
+  color: #a52727;
+}
+
+.savings-pending {
+  color: var(--muted, #58645b);
+}
+
+.savings-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.savings-list > li + li {
+  border-top: 1px solid var(--line, #d9e0d5);
+}
+
+.savings-row {
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content minmax(0, 1fr);
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  max-width: 26rem;
+  min-height: 2.75rem;
+  margin-inline: auto;
+  padding: 0.45rem 0;
+  text-align: center;
+  line-height: 1.25;
+  font-variant-numeric: tabular-nums;
+}
+
+.savings-row > time {
+  color: var(--muted, #58645b);
+}
+
+button.savings-entry-edit {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  line-height: 1.25;
+  font-variant-numeric: tabular-nums;
+}
+
+.savings-row > strong {
+  white-space: nowrap;
+}
+
+.savings-note {
+  overflow-wrap: anywhere;
+  color: var(--muted, #58645b);
+  font-size: 0.78rem;
+}
+
+.savings-add {
+  width: 100%;
+  margin-top: 0.5rem;
+  border-radius: var(--tile-inner-radius, 0.75rem);
+}
+
+#savings-dialog [hidden] {
+  display: none;
+}
+
+#savings-dialog input,
+#savings-dialog select,
+:is(#add-savings, .schedule-savings-fields) select {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
 }

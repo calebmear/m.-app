@@ -481,6 +481,7 @@ function cardMarkup() {
     const posted = charges.reduce((sum, charge) => sum + (charge.postedDate ? charge.amountCents : 0), 0);
     const pending = charges.reduce((sum, charge) => sum + (charge.postedDate ? 0 : charge.amountCents), 0);
     const payment = payments.find(item => item.id === card.id);
+    const postedLessPayments = posted - payment.paidCents;
     const recordedPayments = (budget.cardPayments ?? []).filter(entry => entry.card === card.id).sort((a, b) => b.day - a.day);
     const canRecordPayment = !budget.closed && payment.amountCents > 0;
     const dueDate = selectedMonth + '-' + String(card.dueDay).padStart(2, '0');
@@ -493,11 +494,11 @@ function cardMarkup() {
         <p class="hint">${card.name} statement cycle · ${cardCycleDates(card)}</p>
         <p class="hint">${money(payment.amountCents)} due <time datetime="${dueDate}">${shortMonth(selectedMonth)} ${card.dueDay}</time></p>
       </div>
-      <div class="card-totals${recordedPayments.length ? ' card-totals-with-payment' : ''}">
-        <div>Posted<strong>${money(posted)}</strong></div>
+      <div class="card-totals card-totals-with-payment">
+        <div>Posted<strong>${money(postedLessPayments)}</strong></div>
         <div>Pending<strong>${money(pending)}</strong></div>
-        ${recordedPayments.length ? `<div class="card-total-paid">Paid<strong>${money(payment.paidCents)}</strong></div>
-        <div>Net total<strong>${money(payment.netCents)}</strong></div>` : `<div>Total<strong>${money(posted + pending)}</strong></div>`}
+        <div class="card-total-paid">Payments<strong>${money(payment.paidCents)}</strong></div>
+        <div>Total<strong>${money(posted + pending)}</strong></div>
       </div>
       ${cardChargeTable(charges, card.id)}
       ${canRecordPayment || recordedPayments.length ? `<dialog id="card-payments-${card.id}" class="schedule-item-dialog" aria-labelledby="card-payments-title-${card.id}">

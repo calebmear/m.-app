@@ -492,7 +492,7 @@ function cardMarkup() {
       aria-labelledby="card-tab-${card.id}" data-card-panel="${card.id}" ${card.id === activeCard ? '' : 'hidden'}>
       <div class="card-cycle">
         <p class="hint">${card.name} statement cycle · ${cardCycleDates(card)}</p>
-        <p class="hint">${money(payment.amountCents)} due <time datetime="${dueDate}">${shortMonth(selectedMonth)} ${card.dueDay}</time></p>
+        <p class="hint card-net-due">Due <time datetime="${dueDate}">${shortMonth(selectedMonth)} ${card.dueDay}</time> · <strong>${money(payment.amountCents)}</strong></p>
       </div>
       <div class="card-totals card-totals-with-payment">
         <div>Posted<strong>${money(postedLessPayments)}</strong></div>
@@ -650,7 +650,8 @@ function billsMarkup() {
   return `<section class="panel bills-panel">
     <form id="edit-bills" novalidate>
       <div class="panel-heading">
-        <div><h2>Bills</h2><p class="hint">${bills.filter(bill => bill.paid).length} of ${bills.length} paid · ${money(subtotal)} total · ${money(totals(budget).remainingBills)} still to clear</p></div>
+        <h2>Bills</h2>
+        <p class="hint bills-overview">${bills.filter(bill => bill.paid).length} of ${bills.length} paid · ${money(subtotal)} total · <strong>${money(totals(budget).remainingBills)}</strong> still to clear</p>
         ${canEdit ? panelEditButton('edit-bills', 'Edit checking bills', 'bill-edit-button') : ''}
       </div>
       <div class="tile-scroll" role="region" aria-label="Checking entries" tabindex="0">
@@ -758,6 +759,37 @@ function finishOpeningScreen(screen) {
   transition.finished.then(finish, finish);
 }
 
+function connectTileTitleFade(workspace) {
+  const mobile = window.matchMedia('(max-width: 759px)');
+  const motion = window.matchMedia('(prefers-reduced-motion: no-preference)');
+  const panels = [...workspace.querySelectorAll('.panel-heading h2')].map(title => ({
+    title, panel: title.closest('.panel'),
+  })).filter(({ panel }) => panel);
+  const visibleTile = () => {
+    const left = workspace.getBoundingClientRect().left;
+    return panels.reduce((closest, tile) =>
+      Math.abs(tile.panel.getBoundingClientRect().left - left) <
+      Math.abs(closest.panel.getBoundingClientRect().left - left) ? tile : closest);
+  };
+  let activeTile = visibleTile();
+  let settleTimer;
+  let titleFade;
+  workspace.addEventListener('scroll', () => {
+    clearTimeout(settleTimer);
+    if (!mobile.matches || !motion.matches) return;
+    settleTimer = setTimeout(() => {
+      if (!workspace.isConnected || !mobile.matches || !motion.matches || workspace.scrollWidth <= workspace.clientWidth) return;
+      const tile = visibleTile();
+      if (tile === activeTile) return;
+      activeTile = tile;
+      titleFade?.cancel();
+      titleFade = tile.title.animate([{ opacity: 0.65 }, { opacity: 1 }], {
+        duration: 170, easing: 'ease-out',
+      });
+    }, 100);
+  }, { passive: true });
+}
+
 function render() {
   headerSizeObserver.disconnect();
   scheduleVisibilityObserver?.disconnect();
@@ -786,6 +818,7 @@ function render() {
   root.querySelector('.workspace').scrollLeft = tileScroll;
   root.querySelectorAll(tileScrollSelector).forEach((list, index) => { list.scrollTop = tileScrollTops[index] ?? 0; });
   const workspace = root.querySelector('.workspace');
+  connectTileTitleFade(workspace);
   const schedulePanel = workspace.querySelector('.schedule-panel');
   const scheduleList = schedulePanel.querySelector('.tile-scroll');
   const showRollover = () => {

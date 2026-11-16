@@ -206,7 +206,7 @@
 }
 
 .schedule-ledger .schedule-ending > td.numeric {
-  font-size: 1.125em;
+  font-size: 1.18em;
 }
 
 .schedule-ledger :is(.schedule-type-bill, .schedule-type-card, .schedule-type-payment) { --schedule-entry-color: #b42318; }
@@ -286,22 +286,34 @@
 
 .panel:is(.card-panel, .bills-panel, .schedule-panel, .savings-panel) {
   position: relative;
+  --ledger-divider: #edf0ec;
 }
 
 :is(.card-panel, .bills-panel, .schedule-panel, .savings-panel) .panel-heading {
   flex-direction: column;
   justify-content: center;
-  gap: 0.5rem;
+  gap: 0.35rem;
   text-align: center;
+  margin-block: 0 0.6rem;
 }
 
 :is(.card-panel, .bills-panel, .schedule-panel, .savings-panel) .panel-heading h2 {
+  margin: 0;
   padding-inline: 2rem;
+  font-size: 1rem;
+  line-height: 1.3;
   text-transform: uppercase;
 }
 
-.bills-panel .panel-heading {
-  margin-block-end: 0.25rem;
+.bills-overview {
+  margin: 0;
+}
+
+:is(.card-net-due, .bills-overview) strong {
+  color: var(--ink, #1a2720);
+  font-size: 1.15em;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
 
 .panel-edit-button,
@@ -1778,7 +1790,13 @@ display: none;
 }
 
 .savings-grand-total strong {
-  font-size: 1.15rem;
+  font-size: 1.18em;
+}
+
+:is(.schedule-panel, .savings-panel) .schedule-ledger tbody > tr:not(.schedule-ending, .schedule-type-balance, .savings-bank) > :is(th, td),
+.card-panel .charge-list-table tbody td,
+.bills-panel .bill-list > li {
+  border-bottom-color: var(--ledger-divider);
 }
 
 .savings-balances .savings-bank > * {
@@ -1817,6 +1835,20 @@ display: none;
 
 .savings-toggle[aria-expanded="true"] .schedule-section-chevron {
   transform: rotate(225deg);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .schedule-section-chevron {
+    transition: transform 160ms ease-out;
+  }
+
+  :is(.workspace, .app-shell > header) button:not(:disabled) {
+    transition: opacity 120ms ease-out;
+  }
+}
+
+:is(.workspace, .app-shell > header) button:not(:disabled):active {
+  opacity: 0.78;
 }
 
 .savings-in {

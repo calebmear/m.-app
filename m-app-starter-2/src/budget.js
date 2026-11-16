@@ -263,8 +263,8 @@ export function compactSchedule(document) {
     ...etsyDepositDays(document).map(day => ({
       day, label: 'Etsy deposit', amountCents: document.etsyDeposits?.[day] ?? 0, kind: 'etsy',
     })),
-    ...(document.savingsTransfers ?? []).filter(entry => !entry.savingsOnly).map(({ day, amountCents, account = DEFAULT_SAVINGS_ACCOUNT }) => ({
-      day, label: amountCents < 0 ? 'Transfer to savings' : 'Withdrawal from savings', amountCents, account, kind: 'savings',
+    ...(document.savingsTransfers ?? []).filter(entry => !entry.savingsOnly).map(({ id, day, amountCents, account = DEFAULT_SAVINGS_ACCOUNT }) => ({
+      id, day, label: amountCents < 0 ? 'Transfer to savings' : 'Withdrawal from savings', amountCents, account, kind: 'savings',
     })),
   ].sort((a, b) => a.day - b.day);
   const lastCardDueDay = Math.max(...cardPayments.map(card => card.dueDay));
@@ -291,8 +291,8 @@ export function compactSchedule(document) {
   }
 
   function addTransfersAndDeposits(start, end) {
-    for (const { day, label, amountCents, kind, account } of transfersAndDeposits) {
-      if (day >= start && day <= end) add(day, label, amountCents, kind, account ? { account } : undefined);
+    for (const { id, day, label, amountCents, kind, account } of transfersAndDeposits) {
+      if (day >= start && day <= end) add(day, label, amountCents, kind, account ? { account, id } : undefined);
     }
   }
 

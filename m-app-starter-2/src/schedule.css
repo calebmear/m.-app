@@ -253,12 +253,6 @@
   display: none;
 }
 
-.schedule-editor-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 0.5rem;
-}
 .card-tabs {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -378,8 +372,25 @@
   padding-inline: 4rem;
 }
 
-.schedule-panel .panel-heading .schedule-editor-actions {
-  justify-content: center;
+#edit-schedule.is-editing > .schedule-edit-footer {
+  display: block;
+  box-sizing: border-box;
+  align-self: stretch;
+  inline-size: 100%;
+  margin-inline: 0;
+  padding-inline: 0;
+}
+
+:is(#edit-schedule.is-editing .schedule-editor-actions, #edit-bills.is-editing .bill-edit-actions) > button {
+  box-sizing: border-box;
+  justify-self: stretch;
+  inline-size: 100%;
+  min-inline-size: 0;
+  margin-inline: 0;
+}
+
+.schedule-edit-footer [data-action="load-paycheck-template"] {
+  grid-column: 1 / -1;
 }
 
 .schedule-panel .schedule-balance-estimate {
@@ -450,6 +461,84 @@
   font-size: clamp(0.85rem, 3.6vw, 1.1rem);
 }
 
+.card-panel .pending-post-trigger {
+  display: inline;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  vertical-align: baseline;
+  overflow-wrap: inherit;
+  text-decoration: none;
+}
+
+.pending-post-form {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.pending-post-form > p {
+  margin: 0;
+}
+
+.pending-post-summary:empty {
+  display: none;
+}
+
+.pending-post-list {
+  max-block-size: min(15rem, 36dvh);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.pending-post-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.6rem;
+  min-block-size: 2.75rem;
+  padding: 0.35rem 0.25rem;
+  border-bottom: 1px solid #edf0ec;
+  overflow-wrap: anywhere;
+}
+
+.pending-post-row strong {
+  white-space: nowrap;
+}
+
+.pending-post-row small:not(:empty) {
+  display: block;
+  color: #254b36;
+}
+
+.pending-post-date {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 0.5rem;
+}
+
+.pending-post-date label {
+  display: grid;
+  min-width: 0;
+}
+
+.pending-post-date input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  font-size: 1rem;
+}
+
+.pending-post-form button,
+.pending-post-date input {
+  min-block-size: 2.75rem;
+}
+
 .card-total-paid { color: #626a65; }
 
 .card-tab-panel > .charge-list {
@@ -495,6 +584,30 @@ body:has(dialog:modal) :is(.workspace, .tile-scroll, .charge-list-scroll, .card-
 .charge-dialog::backdrop,
 .schedule-item-dialog::backdrop {
   background: rgb(20 33 25 / 45%);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  dialog:is(.charge-dialog, .schedule-item-dialog):modal {
+    animation: budget-dialog-enter 150ms ease-out;
+  }
+
+  dialog:is(.charge-dialog, .schedule-item-dialog):modal::backdrop {
+    animation: budget-backdrop-enter 150ms ease-out;
+  }
+}
+
+@keyframes budget-dialog-enter {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes budget-backdrop-enter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+:is(.tile-scroll, .charge-list-scroll, .card-month-activity-list, .pending-post-list).has-more-rows {
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 12px), transparent);
 }
 
 :is(.charge-dialog, .schedule-item-dialog) button {
@@ -859,7 +972,9 @@ body:has(dialog:modal) :is(.workspace, .tile-scroll, .charge-list-scroll, .card-
   margin-block: 0.75rem;
 }
 
-.charge-list.is-editing .charge-list-actions {
+.charge-list.is-editing .charge-list-actions,
+#edit-schedule.is-editing .schedule-editor-actions,
+#edit-bills.is-editing .bill-edit-actions {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 0.5rem;
@@ -1048,14 +1163,6 @@ body:has(dialog:modal) :is(.workspace, .tile-scroll, .charge-list-scroll, .card-
   flex-wrap: wrap;
   gap: 0.4rem;
   margin-block: 0.5rem;
-}
-
-.bill-edit-actions {
-  display: flex;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  margin-top: 0.65rem;
 }
 
 @media (max-width: 759px) {
@@ -1392,8 +1499,8 @@ margin-bottom: 0.5rem;
 
 .schedule-savings-fields {
 display: grid;
-grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
-gap: 0.5rem;
+grid-template-columns: repeat(2, minmax(0, 1fr));
+gap: 0.65rem;
 min-inline-size: 0;
 border: 0;
 margin: 0;
@@ -1401,11 +1508,27 @@ padding: 0;
 }
 
 .schedule-savings-fields > label {
-grid-template-columns: minmax(0, 1fr);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.3rem;
 }
 
-.schedule-savings-fields input {
-width: 100%;
+.schedule-savings-fields :is(input:not([type="radio"]), select) {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 2.75rem;
+  font-size: 1rem;
+}
+
+.schedule-savings-fields input[type="date"] {
+  appearance: none;
+  display: block;
+}
+
+.schedule-savings-fields input[type="date"]::-webkit-date-and-time-value {
+  min-width: 0;
+  text-align: start;
 }
 
 .schedule-savings-fields:disabled {
@@ -1457,11 +1580,12 @@ margin: 0;
 }
 
 .panel-add-menu {
+  --add-menu-width: 13rem;
   position: fixed;
   inset: auto;
-  left: clamp(8px, var(--add-menu-left, 8px), max(8px, calc(100% - 11rem - 8px)));
+  left: clamp(8px, var(--add-menu-left, 8px), max(8px, calc(100% - var(--add-menu-width) - 8px)));
   box-sizing: border-box;
-  width: min(11rem, calc(100% - 16px));
+  width: min(var(--add-menu-width), calc(100% - 16px));
   margin: 0;
   padding: 0.35rem;
   border: 1px solid var(--line, #d5ddd4);
@@ -1472,19 +1596,52 @@ margin: 0;
 }
 
 .panel-add-menu > button {
-  display: block;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.6rem;
   width: 100%;
   min-height: 2.75rem;
-  padding: 0.5rem 0.75rem;
+  padding: 0.35rem 0.6rem;
   border: 0;
   border-radius: 0.65rem;
   background: transparent;
   color: inherit;
+  font-weight: 600;
   text-align: start;
 }
 
-.panel-add-menu > button:is(:hover, :focus-visible) {
+.panel-add-menu > button:is(:hover, :focus-visible, :active) {
   background: #edf2e9;
+}
+
+.panel-add-icon {
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 0.65rem;
+  background: #edf2e9;
+  color: #254b36;
+}
+
+.panel-add-menu [data-item="savings"] .panel-add-icon {
+  background: #edf5fc;
+  color: #295777;
+}
+
+.panel-add-menu [data-item="misc"] .panel-add-icon {
+  background: #f1eff4;
+  color: #63546f;
+}
+
+.panel-add-chevron {
+  width: 0.35rem;
+  height: 0.35rem;
+  margin-inline-end: 0.15rem;
+  border: solid #647168;
+  border-width: 1.5px 1.5px 0 0;
+  transform: rotate(45deg);
 }
 
 .schedule-item-dialog .schedule-item-form:not([hidden]) {
@@ -1492,11 +1649,6 @@ margin: 0;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.5rem;
   min-width: 0;
-}
-
-#bill-item-dialog #add-checking-item {
-  grid-template-columns: minmax(0, 1fr);
-  max-width: 100%;
 }
 
 .schedule-item-form > :is(label:first-child, .schedule-item-actions, .schedule-editor-error, .savings-amount-hint) {
@@ -1535,9 +1687,73 @@ grid-column: 1 / -1;
 }
 
 @media (max-width: 759px) {
-  .schedule-item-dialog .schedule-item-form:not([hidden]) {
+  .schedule-item-dialog .schedule-item-form:not(.addition-form, [hidden]) {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+.schedule-item-dialog .addition-form:not([hidden]) {
+  gap: 0.85rem 0.65rem;
+}
+
+:is(.addition-form, .schedule-savings-fields) > :is(.addition-direction, .addition-wide, button) {
+  grid-column: 1 / -1;
+}
+
+.addition-form > label {
+  gap: 0.3rem;
+}
+
+.schedule-item-dialog .addition-form :is(input:not([type="radio"]), select, button) {
+  min-height: 2.75rem;
+  font-size: 1rem;
+}
+
+.schedule-item-dialog .addition-form input[type="date"] {
+  width: 100%;
+}
+
+.addition-direction {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  min-inline-size: 0;
+  margin: 0;
+  padding: 2px;
+  border: 1px solid #d5ddd4;
+  border-radius: 0.75rem;
+}
+
+.addition-direction label {
+  position: relative;
+  margin: 0;
+  cursor: pointer;
+}
+
+:is(.addition-form, .schedule-savings-fields) .addition-direction input {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  opacity: 0;
+}
+
+.addition-direction span {
+  display: grid;
+  place-items: center;
+  min-height: 2.5rem;
+  padding: 0.2rem;
+  border-radius: 0.6rem;
+  text-align: center;
+}
+
+.addition-direction input:checked + span {
+  background: #e1eee4;
+  color: #254b36;
+  font-weight: 600;
+}
+
+.addition-direction input:focus-visible + span {
+  outline: 2px solid #254b36;
+  outline-offset: -2px;
 }
 
 /* Display the existing wordmark without its suffix. */
@@ -1861,6 +2077,26 @@ display: none;
 
 .savings-pending {
   color: var(--muted, #58645b);
+}
+
+@keyframes saved-entry-highlight {
+  0%, 25% { box-shadow: inset 0 0 0 100vmax rgb(56 124 79 / 16%); }
+  100% { box-shadow: inset 0 0 0 100vmax rgb(56 124 79 / 0%); }
+}
+
+:is(li.just-saved, .card-net-due strong.just-saved, tr.just-saved > :is(th, td)) {
+  animation: saved-entry-highlight 1.55s ease-out;
+}
+
+.card-net-due strong.just-saved {
+  border-radius: 0.3rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :is(li.just-saved-static, .card-net-due strong.just-saved-static, tr.just-saved-static > :is(th, td)) {
+    animation: none;
+    box-shadow: inset 0 0 0 100vmax rgb(56 124 79 / 16%);
+  }
 }
 
 .savings-list {
